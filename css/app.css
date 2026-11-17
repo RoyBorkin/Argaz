@@ -1,4 +1,5 @@
-/* Argaz – crate configurator
+/* Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
+   Argaz – crate configurator
    Palette: moulding-floor grey stage, paper panel, ink, and the crate's own colour as accent. */
 :root {
   --stage: #E3E6E1;
@@ -136,7 +137,7 @@ button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-ac
 }
 .tab {
   position: relative; border: 0; background: none;
-  padding: 10px 0 11px; font-size: 13px; font-weight: 500; color: var(--muted);
+  padding: 10px 0 11px; font-size: 12.5px; letter-spacing: -0.01em; font-weight: 500; color: var(--muted);
   transition: color 160ms ease;
 }
 .tab[aria-selected='true'] { color: var(--ink); font-weight: 650; }
@@ -257,6 +258,38 @@ button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-ac
 .sw[aria-checked='true'] { box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--c); }
 .sw-custom { position: relative; overflow: hidden; background: conic-gradient(#e2367e, #f2b705, #2aa7e0, #295b2e, #e2367e); }
 .sw-custom input { position: absolute; inset: -8px; opacity: 0; cursor: pointer; }
+
+/* view box on the stage: section, dimensions, stack, explode */
+.dock {
+  position: absolute; right: 18px; bottom: 26px; width: 236px;
+  display: grid; gap: 6px; padding: 10px;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--paper) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--paper) 60%, var(--line));
+}
+.dock-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dock-btn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; border-radius: 9px; border: 1px solid var(--line); background: var(--paper);
+  font-size: 12.5px; font-weight: 550; color: var(--muted);
+  transition: transform 140ms var(--ease-out), background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+.dock-btn svg { width: 17px; height: 17px; flex: none; }
+.dock-btn[aria-pressed='true'] { background: var(--crate); border-color: var(--crate); color: var(--crate-ink); }
+.dock-btn:active, .step:active { transform: scale(0.96); }
+.dock-lbl { font-size: 12.5px; color: var(--muted); width: 54px; flex: none; }
+.dock-stack output { min-width: 26px; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
+.step {
+  width: 32px; height: 30px; border-radius: 9px; border: 1px solid var(--line); background: var(--paper);
+  font-size: 17px; line-height: 1; display: grid; place-items: center; transition: transform 140ms var(--ease-out);
+}
+.step:disabled { opacity: 0.35; }
+.dock-explode .slider { flex: 1; }
+.copyright {
+  position: absolute; right: 20px; bottom: 6px; margin: 0;
+  font-size: 10.5px; color: var(--muted); opacity: 0.8; pointer-events: none;
+}
 
 /* text, file and action controls */
 .ctl-text, .ctl-file { grid-template-columns: 116px minmax(0, 1fr); gap: 10px; }
@@ -392,10 +425,20 @@ button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-ac
   .ctl-seg, .ctl-swatch, .ctl-text, .ctl-file { grid-template-columns: minmax(84px, 30%) minmax(0, 1fr); gap: 8px; }
   .lbl { font-size: 12.5px; }
   .brand { top: 12px; left: 14px; gap: 10px; }
+  .dock { left: 10px; right: 10px; top: 56px; bottom: auto; width: auto; padding: 5px; gap: 5px;
+    grid-template-columns: auto auto minmax(0, 1fr); align-items: center; border-radius: 12px; }
+  .dock-row { gap: 4px; }
+  .dock-btn { flex: none; width: 34px; height: 30px; padding: 0; }
+  .dock-btn span { display: none; }
+  .dock-stack .dock-lbl { display: none; }
+  .step { width: 28px; height: 28px; }
+  .dock-stack output { min-width: 18px; }
+  .dock-explode .dock-lbl { width: auto; margin-left: 4px; }
+  .copyright { right: 12px; bottom: 6px; font-size: 9.5px; }
   .wordmark { font-size: 20px; }
   .wordmark span { font-size: 17px; }
   .stage-tools { top: 10px; right: 10px; }
-  .build-state { top: 44px; left: 16px; }
+  .build-state { top: 100px; left: 16px; }
   .plate { left: 10px; right: 10px; bottom: 28px; padding: 8px 12px 8px 10px; gap: 12px; }
   .plate dl { gap: 2px 12px; flex: 1; justify-content: space-between; }
   .plate dd { font-size: 13px; }
@@ -436,4 +479,4 @@ button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-ac
 }
 
 /* iOS zooms into inputs under 16px; keep value fields at 16px on touch screens */
-@media (pointer: coarse) { .val { font-size: 16px; } }
+@media (pointer: coarse) { .val { font-size: 16px; } .ctl-range { grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) 64px; } }

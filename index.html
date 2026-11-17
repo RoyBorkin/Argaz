@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved. -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -6,6 +7,8 @@
   <title>Argaz, a parametric crate</title>
   <meta name="description" content="Design a stackable plastic crate in your browser and export it for 3D printing." />
   <meta name="theme-color" content="#E3E6E1" />
+  <meta name="author" content="Roy Borkin" />
+  <meta name="copyright" content="© 2026 Roy Borkin. All rights reserved." />
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -43,6 +46,30 @@
       </div>
 
       <div class="build-state" id="buildState" role="status" aria-live="polite"></div>
+
+      <section class="dock" id="dock" aria-label="View">
+        <div class="dock-row">
+          <button class="dock-btn" id="dockSection" aria-pressed="false" title="Section cut">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5l6-3 6 3v9l-6 3-6-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 2.5v15" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 1.6"/></svg>
+            <span>Section</span>
+          </button>
+          <button class="dock-btn" id="dockDims" aria-pressed="true" title="Dimensions">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15.5h14M3 13v5M17 13v5M4 3v9M2 4.5h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span>Dimensions</span>
+          </button>
+        </div>
+        <div class="dock-row dock-stack">
+          <span class="dock-lbl">Stack</span>
+          <button class="step" id="stackMinus" aria-label="Fewer crates">−</button>
+          <output id="stackVal" aria-live="polite">1</output>
+          <button class="step" id="stackPlus" aria-label="More crates">+</button>
+        </div>
+        <label class="dock-row dock-explode">
+          <span class="dock-lbl">Explode</span>
+          <span class="slider"><input type="range" id="explodeRange" min="0" max="1" step="0.01" value="0" aria-label="Exploded view" /></span>
+        </label>
+      </section>
+      <p class="copyright">© 2026 Roy Borkin. All rights reserved.</p>
 
       <section class="plate" id="plate" aria-label="Crate summary">
         <div class="resin" aria-label="Polypropylene, resin code 5">

@@ -1,3 +1,4 @@
+// Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
 // File exports. Mesh coordinates are millimetres, Z up (print-ready).
 
 export function download(blob, name) {
@@ -37,7 +38,7 @@ export function toSTL({ pos, numProp, index }) {
   const nt = index.length / 3;
   const buf = new ArrayBuffer(84 + nt * 50);
   const dv = new DataView(buf);
-  const head = 'Crate configurator - binary STL, mm';
+  const head = 'Argaz crate, mm. (c) 2026 Roy Borkin. All rights reserved.';
   for (let i = 0; i < head.length; i++) dv.setUint8(i, head.charCodeAt(i));
   dv.setUint32(80, nt, true);
   let o = 84;
@@ -57,7 +58,7 @@ export function toSTL({ pos, numProp, index }) {
 
 export function toOBJ({ pos, numProp, index }) {
   const nv = pos.length / numProp;
-  const lines = ['# Crate configurator - units: mm', 'o crate'];
+  const lines = ['# Argaz crate, units: mm', '# © 2026 Roy Borkin. All rights reserved.', 'o crate'];
   for (let i = 0; i < nv; i++) lines.push(`v ${pos[i * numProp].toFixed(4)} ${pos[i * numProp + 1].toFixed(4)} ${pos[i * numProp + 2].toFixed(4)}`);
   for (let t = 0; t < index.length; t += 3) lines.push(`f ${index[t] + 1} ${index[t + 1] + 1} ${index[t + 2] + 1}`);
   return new Blob([lines.join('\n')], { type: 'text/plain' });
@@ -76,6 +77,7 @@ export function to3MF(objects, colorHex = '#295B2E') {
   });
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<metadata name="Title">Argaz crate</metadata><metadata name="Designer">Roy Borkin</metadata><metadata name="Copyright">© 2026 Roy Borkin. All rights reserved.</metadata><metadata name="LicenseTerms">All rights reserved</metadata>
 <resources><basematerials id="1"><base name="PP" displaycolor="${colorHex}FF"/></basematerials>${res.join('')}</resources>
 <build>${items.join('')}</build></model>`;
   const types = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`;

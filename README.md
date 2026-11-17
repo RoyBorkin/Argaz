@@ -1,3 +1,4 @@
+<!-- © 2026 Roy Borkin. All rights reserved. -->
 # Argaz – parametric crate
 
 A browser configurator for stackable plastic crates, based on the Tnuva crate Grasshopper definition.
@@ -39,12 +40,13 @@ The **Tnuva classic** preset (the default) was rebuilt against a photo of the re
 
 | Detail on the real crate | Parameter |
 | --- | --- |
-| Pairs of thin horizontal ribs | Ribs › Lines per rib, Line gap |
-| Extra thin lines under the top rim | Stack › Lines under rim |
-| Vertical ribs splitting each face into three columns, a wide solid centre column | Faces › Columns, Centre column, Vertical rib |
-| Small square openings in every other band, slots in the rest | Faces › Alternate bands, Band openings, Opening size |
-| Rounded-rectangle hand hold with a raised frame | Grips › Shape, Frame, Corner radius |
-| Name moulded into a plate on the front | Logo › Text or Image, Raised / Engraved / Cut through, On faces |
+| Thin lines clustered under the top rim | Stack › Top rim, Lines under rim |
+| Bands of different heights; solid bands at the bottom; small squares in some bands | Ribs › Band layout, e.g. `48q 48 48q 48 28s 28s` (top to bottom, q = squares, s = solid) |
+| Solid corner columns framed by vertical ribs, horizontal ribs running across them | Faces › Corner column, Corner ribs (Stack › Corner pillars off) |
+| Vertical ribs splitting each face into three columns | Faces › Columns, Centre column, Vertical rib |
+| Hand hold with a flat top under the rim and a round bottom | Grips › Shape: Tub, Top radius, Bottom radius |
+| Smooth panel spanning two bands, raised over the ribs | Plate › In band, Bands tall, Raise |
+| Name moulded into the panel | Logo › Text or Image, Raised / Engraved / Cut through |
 
 ![Hebrew logo raised on the label plate](docs/app-logo.jpg)
 
@@ -54,7 +56,7 @@ Type a name (any language the browser can render, Hebrew included) or upload a P
 
 ### View options
 
-The sliders button at the top right of the 3D view holds colour, gloss, stack preview, section cut, dimensions and the exploded view. **Mixed colours** gives every crate in the stack its own colour; **Shuffle** deals a new set.
+The view box on the 3D stage holds the section cut, dimensions, stack preview (− / +) and the exploded view. The sliders button at the top right holds colour and gloss; **Mixed colours** gives every crate in the stack its own colour, and **Shuffle** deals a new set.
 
 ![Three stacked crates in different colours](docs/app-mixed.jpg)
 
@@ -79,7 +81,8 @@ The **Cover** tab builds a lid for the crate: plate thickness, overhang, grip no
 
 The **Print** tab prepares the crate for a 3D printer:
 
-- **Print-ready** adds 45° chamfers under every rib and rim and moves the floor to the bottom of the foot, so every part prints upright with no supports.
+- **Print-ready** adds 45° chamfers under every rib and rim so every part prints upright with no supports.
+- **Foot:** *Original* keeps the real crate's foot and makes it printable by printing it as a separate ring that plugs into a groove under the floor (the floor then prints flat on the bed). *45° shoulder* makes it one piece, with the floor moved to the bottom of the foot and a sloped shoulder above it.
 - **Separate base** splits the floor and stacking foot from the walls; **Wall sections** splits the walls at ribs (where there are no openings) so tall crates fit your printer.
 - **Joints:** *Snap* (catches on the tongue with flex slits, recesses in the groove), *Glue* (a glue gap plus two grooves that hold adhesive) or *Tight gap* (a press fit). Gaps, snap bumps and joint depth are real millimetres and do not change with scale.
 - A cover with features on both faces is split through the middle of its plate, so both halves print flat; corner pegs line them up.
@@ -87,6 +90,8 @@ The **Print** tab prepares the crate for a 3D printer:
 - **Bed:** pick a printer or set any bed size up to 1 m, so the same tool works for large-format printers. **Fit to bed** turns on Print-ready and picks wall sections and vertical cuts for that bed. Nothing in the Print tab changes the crate unless Print-ready is on, so the model stays a normal crate for other manufacturing methods.
 - **Exploded view** pulls the parts apart with labels; **Bed view** lays them out on the print bed, packed onto as many plates as your printer needs. Oversized or too-tall parts are marked in red.
 - Export the whole set as one **3MF** (every part laid out) or as a **zip of STL files**, one per part, already oriented, with assembly notes.
+
+![Original foot printed as a separate ring, exploded with the base and two wall sections](docs/app-ringfoot.jpg)
 
 | Exploded view | Bed view, ⅓-scale kit on a 256 mm bed |
 | --- | --- |
@@ -146,6 +151,10 @@ This version builds the whole crate at once:
 
 Units are millimetres. Exports are Z-up (STL, 3MF, OBJ); GLB is Y-up in metres as glTF expects.
 
-## Licences
+## Copyright and licence
 
-three.js and Manifold are MIT/Apache-2.0 licensed; their licence files are in `vendor/`.
+© 2026 Roy Borkin. All rights reserved. See [LICENSE](LICENSE).
+
+The code, design and documentation may not be copied, modified or redistributed without written permission. Exported files carry the same notice (STL header, 3MF metadata, OBJ and SVG comments).
+
+The libraries in `vendor/` keep their own licences: three.js (MIT) and Manifold (Apache 2.0), with their licence files next to them. "Tnuva" is a trademark of its owner; this project is not affiliated with Tnuva.

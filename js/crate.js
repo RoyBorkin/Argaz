@@ -1,3 +1,4 @@
+// Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
 // Procedural crate + cover builder.
 // Pure geometry: takes the Manifold WASM module + params, returns a list of parts (meshes + stats).
 // Units: millimetres, Z up. Face 0 points to -Y (the "front").
@@ -65,6 +66,22 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     }
     return pts;
   }
+  // rounded rectangle with a small radius on top and a larger one at the bottom
+  function tubRect(w, h, rTop, rBot, cx, cy, segs) {
+    rTop = Math.max(0, Math.min(rTop, w / 2 - 0.01, h / 2 - 0.01));
+    rBot = Math.max(0, Math.min(rBot, w / 2 - 0.01, h - rTop - 0.01));
+    const pts = [];
+    const arc = (ox, oy, rad, a0) => {
+      if (rad < 0.05) { pts.push([ox + Math.cos(a0 + Math.PI / 4) * 0, oy]); return; }
+      for (let i = 0; i <= segs; i++) { const th = a0 + (Math.PI / 2) * (i / segs); pts.push([ox + rad * Math.cos(th), oy + rad * Math.sin(th)]); }
+    };
+    const x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
+    if (rTop < 0.05) pts.push([x1, y1]); else arc(x1 - rTop, y1 - rTop, rTop, 0);
+    if (rTop < 0.05) pts.push([x0, y1]); else arc(x0 + rTop, y1 - rTop, rTop, Math.PI / 2);
+    if (rBot < 0.05) pts.push([x0, y0]); else arc(x0 + rBot, y0 + rBot, rBot, Math.PI);
+    if (rBot < 0.05) pts.push([x1, y0]); else arc(x1 - rBot, y0 + rBot, rBot, Math.PI * 1.5);
+    return pts;
+  }
   function holeShape(shape, w, h, rr, cx, cy) {
     const segs = quality >= 1 ? 6 : 3;
     switch (shape) {
@@ -76,6 +93,7 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
       case 'hex': { const pts = []; for (let i = 0; i < 6; i++) pts.push([cx + (w / 2) * Math.cos((i / 6) * TAU), cy + (h / 2) * Math.sin((i / 6) * TAU)]); return pts; }
       case 'diamond': return [[cx + w / 2, cy], [cx, cy + h / 2], [cx - w / 2, cy], [cx, cy - h / 2]];
       case 'rect': return roundedRect(w, h, rr, cx, cy, segs);
+      case 'tub': return tubRect(w, h, rr, P.handleRadiusB, cx, cy, segs * 2);
       default: return roundedRect(w, h, Math.min(w, h) / 2, cx, cy, segs);
     }
   }
@@ -124,7 +142,13 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
   // A rib band can be several thin lines (the real crate uses pairs); the rim can have extra lines under it.
   const baseH = Math.min(P.baseBand, H * 0.3);
   const rimH = Math.min(P.rimHeight, H * 0.3);
-  const ribs = Math.round(P.ribCount);
+  // custom band layout, top to bottom: "48q 48 48q 48 28s 28s" (q = small square openings, s = solid)
+  const layout = String(P.bandSizes || '').trim().split(/[\s,]+/).map((tok) => {
+    const m = /^(\d+(?:\.\d+)?)([a-z]*)$/i.exec(tok);
+    return m && +m[1] > 0 ? { w: +m[1], code: m[2].toLowerCase() } : null;
+  }).filter(Boolean).slice(0, 12);
+  const custom = layout.length > 0;
+  const ribs = custom ? layout.length - 1 : Math.round(P.ribCount);
   const ribH = P.ribHeight;
   const nl = Math.max(1, Math.round(P.ribLines || 1));
   const lgap = nl > 1 ? Math.min(P.ribLineGap, (ribH * 0.6) / (nl - 1)) : 0;
@@ -134,14 +158,16 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
   const rimGap = Math.max(2, P.ribLineGap);
   const rimTotal = Math.min(rimH + rimL * (rimLineH + rimGap), H * 0.4);
   const span = Math.max(0, H - rimTotal - baseH - ribs * ribH);
-  const weights = []; for (let i = 0; i <= ribs; i++) weights.push(Math.pow(P.ribGrade, i));
+  const weights = [];
+  if (custom) for (let i = layout.length - 1; i >= 0; i--) weights.push(layout[i].w); // bottom → top
+  else for (let i = 0; i <= ribs; i++) weights.push(Math.pow(P.ribGrade, i));
   const wsum = weights.reduce((x, y) => x + y, 0);
   const zones = [], bands = [];
   bands.push({ z0: 0, z1: baseH, depth: P.ribDepth, kind: 'base', lines: [[0, baseH, P.ribDepth]] });
   let z = baseH;
   for (let i = 0; i <= ribs; i++) {
     const zh = (span * weights[i]) / wsum;
-    zones.push({ z0: z, z1: z + zh }); z += zh;
+    zones.push({ z0: z, z1: z + zh, code: custom ? layout[layout.length - 1 - i].code : '' }); z += zh;
     if (i < ribs) {
       const lines = [];
       for (let j = 0; j < nl; j++) { const l0 = z + j * (lineH + lgap); lines.push([l0, l0 + lineH, P.ribDepth]); }
@@ -167,7 +193,14 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
   // =====================================================================
   const solids = [];
   const logoOn = !!(P.logo && logo && logo.rects && logo.rects.length);
-  const label = P.label || logoOn ? { w: Math.min(P.labelWidth, straight - 2 * holeM), h: Math.min(P.labelHeight, H * 0.6), zc: P.labelZ * H, plate: !!P.label } : null;
+  let label = P.label || logoOn ? { w: Math.min(P.labelWidth, straight - 2 * holeM), h: Math.min(P.labelHeight, H * 0.6), zc: P.labelZ * H, plate: !!P.label } : null;
+  // a plate can fill whole bands (counted from the top), like the smooth panel on the real crate
+  if (label && P.labelBand > 0 && zones.length) {
+    const top = Math.min(zones.length, Math.round(P.labelBand)), span = Math.max(1, Math.round(P.labelSpan));
+    const zTop = zones[zones.length - top], zBot = zones[Math.max(0, zones.length - top - span + 1)];
+    label.zc = (zTop.z1 + zBot.z0) / 2;
+    label.h = zTop.z1 - zBot.z0 + 2;
+  }
   const onFaces = (mode, k) => mode === 'all' || (mode === 'pair' && (N % 2 === 0 ? k % (N / 2) === 0 : k === 0)) || k === 0;
   const labelFace = (k) => !!label && (k === 0 || (logoOn && onFaces(P.logoFaces, k)));
   const handle = P.handles ? { w: Math.min(P.handleWidth, straight - 10), h: Math.min(P.handleHeight, H * 0.4), top: H - P.handleTop } : null;
@@ -178,11 +211,13 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
 
   let holeCount = 0;
   const hw = P.holeWidth, hh = P.holeHeight, gx = P.holeGapX, gy = P.holeGapY;
-  const pillarClear = P.pillars ? Math.min(P.pillarWidth, straight * 0.45) : 0;
+  // corner columns are solid; pillars only decide whether they stand proud of the wall
+  const cornerRibs = Math.max(0, Math.round(P.cornerRibs || 0));
+  const pillarClear = P.pillars || cornerRibs ? Math.min(P.pillarWidth, straight * 0.4) : 0;
   const handleCutters = [];
   const handleLips = [];
   // columns across each face, separated by vertical ribs (the real crate has a solid centre column)
-  const usableW = straight - 2 * Math.max(holeM, pillarClear + holeM * 0.5);
+  const usableW = cornerRibs ? straight - 2 * (pillarClear + P.vRibWidth / 2 + P.holeGapX * 0.6) : straight - 2 * Math.max(holeM, pillarClear + holeM * 0.5);
   const colsN = Math.max(1, Math.round(P.columns || 1));
   const vrw = P.vRibWidth;
   const colBounds = [-usableW / 2];
@@ -199,11 +234,15 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
   }
   colBounds.push(usableW / 2);
   const vRibXs = colBounds.slice(1, -1);
+  const cornerXs = [];
+  if (cornerRibs >= 1) cornerXs.push(-(straight / 2 - pillarClear), straight / 2 - pillarClear);
+  if (cornerRibs >= 2) cornerXs.push(-(straight / 2 - vrw / 2 - 0.3), straight / 2 - vrw / 2 - 0.3);
   for (let k = 0; k < N; k++) {
     const polys = [];
     if (P.holes && usableW > hw) {
       zones.forEach((zn, zi) => {
-        const alt = P.altBands && (zones.length - 1 - zi) % 2 === 0;
+        if (zn.code === 's') return;
+        const alt = custom ? zn.code === 'q' : P.altBands && (zones.length - 1 - zi) % 2 === 0;
         const shape = alt ? P.altShape : P.holeShape;
         const w = alt ? P.altSize : hw;
         const zh = zn.z1 - zn.z0 - 2 * holeM * 0.6;
@@ -235,7 +274,7 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
       });
     }
     if (handleFace(k)) {
-      const hs = holeShape(P.handleShape === 'rect' ? 'rect' : 'slot', handle.w, handle.h, P.handleRadius, 0, handle.top - handle.h / 2);
+      const hs = holeShape(P.handleShape === 'rect' || P.handleShape === 'tub' ? P.handleShape : 'slot', handle.w, handle.h, P.handleRadius, 0, handle.top - handle.h / 2);
       polys.push(hs);
       handleCutters.push(faceXform(T(cs([hs]).extrude(80, 0, 0, 1, true)), k, 0, 0, 0));
       if (P.handleLip && P.handleLipWidth > 0.2) {
@@ -250,7 +289,8 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
 
   // floor (normal mode: at the bottom of the walls; print mode: at the bottom of the foot)
   let floorHoles = 0;
-  const floorAt = printMode && P.foot && footH > 0.1 ? 'foot' : 'wall';
+  const ringFoot = printMode && P.foot && footH > 0.1 && P.footStyle === 'ring';
+  const floorAt = printMode && P.foot && footH > 0.1 && !ringFoot ? 'foot' : 'wall';
   {
     const outer = floorAt === 'foot' ? footOut : -t + 0.3;
     const innerLimit = floorAt === 'foot' ? footIn : -t;
@@ -280,8 +320,8 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     });
   }
   // vertical ribs between the columns
-  if (vRibXs.length && P.ribDepth > 0.05) {
-    for (let k = 0; k < N; k++) for (const x of vRibXs) {
+  if ((vRibXs.length || cornerXs.length) && P.ribDepth > 0.05) {
+    for (let k = 0; k < N; k++) for (const x of [...vRibXs, ...cornerXs]) {
       bandSolids.push(faceXform(T(cs([roundedRect(vrw, H - 0.2, 0, x, H / 2)]).extrude(P.ribDepth + t * 0.5)), k, -t * 0.5, 0, 0));
     }
   }
@@ -335,7 +375,28 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
   if (s !== 1) body = T(body.warp((v) => { const k = 1 + (s - 1) * (Math.max(0, v[2]) / H); v[0] *= k; v[1] *= k; }));
 
   // stacking foot
-  if (P.foot && footH > 0.1) {
+  let footPart = null;
+  if (ringFoot) {
+    // original foot, made printable: the ring prints on its own (flat on the bed, no bridging under the floor)
+    // and locks into a groove under the floor with the chosen joint gap
+    const fw = Math.max(1.6, P.footWall);
+    const gapF = abs(P.joint === 'glue' ? P.glueGap : P.joint === 'press' ? P.pressGap : P.snapGap);
+    const hjF = Math.min(tf * 0.6, abs(2.5));
+    const tOut = footOut - fw * 0.3, tIn = footIn + fw * 0.3;
+    let fr = union([ring(footOut, footIn, -footH, 0), ring(tOut, tIn, -0.01, hjF - gapF)]);
+    if (P.floorPattern !== 'none') {
+      const notches = [];
+      for (let k = 0; k < N; k++) {
+        const b = T(T(Manifold.cube([straight * 0.3, 40, footH * 0.55], true)).translate([0, 0, -footH + footH * 0.25 - 0.01]));
+        const th = normalAngle(k);
+        notches.push(T(T(b.rotate([0, 0, (th * 180) / Math.PI + 90])).translate([Math.cos(th) * (a + footOut), Math.sin(th) * (a + footOut), 0])));
+      }
+      fr = diff(fr, union(notches));
+    }
+    body = diff(body, ring(tOut + gapF, tIn - gapF, -1, hjF));
+    body = T(body.translate([0, 0, footH]));
+    footPart = T(fr.translate([0, 0, footH]));
+  } else if (P.foot && footH > 0.1) {
     let foot;
     if (floorAt === 'foot') {
       // print-friendly: ring + 45° shoulder up to the base band, floor already at the bottom
@@ -384,7 +445,11 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
 
     const jointType = P.joint;
     const gap = abs(jointType === 'snap' ? P.snapGap : jointType === 'glue' ? P.glueGap : P.pressGap);
+    // the base joint can also reach into solid bands right above the base band (no openings there)
+    let baseTop = bands[0].z1;
+    for (let i = 0; i < zones.length && zones[i].code === 's'; i++) baseTop = Math.max(baseTop, zones[i].z1);
     const joints = cands.map((c) => {
+      if (c.base) c = { ...c, band: { ...c.band, z1: baseTop } };
       const bandH = c.band.z1 - c.band.z0;
       let zs = c.band.z0 + 0.3;
       if (c.base) zs = floorAt === 'foot' ? 0.3 : Math.max(tf + 0.5, 0.3);
@@ -461,6 +526,8 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
   } else {
     parts.push({ id: 'crate', label: 'Crate', kind: 'crate', solid: body, flip: false, order: 0 });
   }
+
+  if (footPart) parts.unshift({ id: 'footRing', label: 'Foot ring', kind: 'base', solid: footPart, flip: false, order: -1, jointAbove: P.joint });
 
   // =====================================================================
   // COVER

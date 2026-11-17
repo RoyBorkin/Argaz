@@ -1,0 +1,23 @@
+Copyright © 2026 Roy Borkin. All rights reserved.
+
+This software, including its source code, design, documentation and the 3D
+models it generates by default, is the property of Roy Borkin.
+
+No part of it may be copied, modified, distributed, published, sublicensed or
+used to create derivative works without prior written permission from the
+copyright holder. Viewing the hosted website and using it to design crates
+for personal use does not grant any of these rights.
+
+Third-party components
+----------------------
+The files in vendor/ are not covered by this notice and remain under their
+own licences, included next to them:
+
+  vendor/three/     three.js            MIT License, © 2010-2026 three.js authors
+  vendor/manifold/  Manifold (WASM)     Apache License 2.0, © The Manifold Authors
+
+The Archivo typeface is loaded from Google Fonts under the SIL Open Font
+License 1.1.
+
+"Tnuva" is a trademark of its owner. This project is not affiliated with or
+endorsed by Tnuva.

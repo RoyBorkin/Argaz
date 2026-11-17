@@ -1,3 +1,4 @@
+// Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { Viewer } from './viewer.js';
 import { SCHEMA, TABS, MODES, DEFAULTS, LIVE_KEYS, NO_URL, PRESETS, PRINTERS, encodeParams, decodeParams } from './params.js';
@@ -6,6 +7,7 @@ import { download, toSTL, toOBJ, to3MF, posed, merge, zipFiles } from './exporte
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'argaz.v1';
+const COPYRIGHT = '© 2026 Roy Borkin. All rights reserved.';
 const haptic = (ms = 4) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
 
 // ---------------- state ----------------
@@ -511,6 +513,7 @@ function syncVisibility() {
   }
 }
 function sync(key) {
+  if (typeof syncDock === 'function' && $('dock')) syncDock();
   if (key) controls.get(key)?.sync();
   else for (const c of controls.values()) c.sync();
   syncVisibility();
@@ -674,7 +677,7 @@ function partForPrint(p) {
 async function doExport(kind) {
   closeMenus();
   if (kind === 'load') return $('loadInput').click();
-  if (kind === 'json') { download(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }), fileBase() + '.json'); return toast('Settings saved'); }
+  if (kind === 'json') { download(new Blob([JSON.stringify({ _copyright: COPYRIGHT, ...Object.fromEntries(Object.entries(state).filter(([k]) => k !== 'logoImage')) }, null, 2)], { type: 'application/json' }), fileBase() + '.json'); return toast('Settings saved'); }
   if (kind === 'png') { download(await viewer.snapshot(), fileBase() + '.png'); return toast('Image saved'); }
   if (!lastParts.length || busy || pending) { toast('Still building, export again in a moment'); return; }
   if (builtQuality < 1) { requestBuild(1); toast('Refining the mesh, export again in a moment'); return; }
@@ -721,6 +724,7 @@ function foamSVG({ outline, marks, thick }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H.toFixed(1)}mm" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}">
   <title>Cushion foam template, 1:1</title>
+  <desc>${COPYRIGHT}</desc>
   <path d="${path(outline)}" fill="none" stroke="#000" stroke-width="0.4"/>
   ${marks.map((p) => `<path d="${path(p)}" fill="none" stroke="#c0392b" stroke-width="0.3" stroke-dasharray="1.5 1"/>`).join('\n  ')}
   <line x1="${m}" y1="${(H - 10).toFixed(2)}" x2="${m + 100}" y2="${(H - 10).toFixed(2)}" stroke="#000" stroke-width="0.4"/>
@@ -731,6 +735,7 @@ function printNotes(parts) {
   const j = { snap: 'Snap: press each part straight down until the catches click.', glue: 'Glue: run a bead of CA or plastic cement into the groove, then press the part above onto the tongue.', press: 'Tight gap: press fit. If it is too tight, sand the tongue lightly; if loose, add a drop of glue.' }[state.joint];
   return [
     'Crate parts, exported from Argaz',
+    COPYRIGHT,
     '',
     'Every file is already oriented for printing: put it on the bed as it is. No supports needed.',
     `Scale ${state.scale}x, wall ${(state.wall * state.scale).toFixed(2)} mm.`,
@@ -770,6 +775,23 @@ $('exportMenu').addEventListener('click', (e) => { const b = e.target.closest('[
 $('undoBtn').onclick = undo;
 $('redoBtn').onclick = redo;
 $('fitBtn').onclick = () => viewer.frame();
+// ---------------- view box on the stage ----------------
+function syncDock() {
+  $('dockSection').setAttribute('aria-pressed', !!state.section);
+  $('dockDims').setAttribute('aria-pressed', !!state.dims);
+  $('stackVal').textContent = state.stack;
+  $('stackMinus').disabled = state.stack <= 1;
+  $('stackPlus').disabled = state.stack >= 5;
+  const ex = $('explodeRange');
+  ex.value = state.explode;
+  ex.style.setProperty('--p', `${state.explode * 100}%`);
+}
+$('dockSection').onclick = () => { haptic(); set('section', !state.section, true); syncDock(); };
+$('dockDims').onclick = () => { haptic(); set('dims', !state.dims, true); syncDock(); };
+$('stackMinus').onclick = () => { if (state.stack > 1) { haptic(); set('stack', state.stack - 1, true); syncDock(); } };
+$('stackPlus').onclick = () => { if (state.stack < 5) { haptic(); set('stack', state.stack + 1, true); syncDock(); } };
+$('explodeRange').addEventListener('input', (e) => { set('explode', +e.target.value, false); syncDock(); });
+$('explodeRange').addEventListener('change', (e) => set('explode', +e.target.value, true));
 $('viewBtn').onclick = (e) => {
   const pane = $('viewPane');
   if (openMenu !== $('viewPanel')) {
@@ -803,14 +825,19 @@ function measureInsets() {
   const st = $('stage').getBoundingClientRect();
   const plate = $('plate').getBoundingClientRect();
   const brand = document.querySelector('.brand').getBoundingClientRect();
-  viewer.setInsets(brand.bottom - st.top + 8, st.bottom - plate.top + 8);
+  const dock = $('dock').getBoundingClientRect();
+  const dockOnTop = dock.top < st.top + st.height / 2;
+  const top = Math.max(brand.bottom, dockOnTop ? dock.bottom : 0) - st.top + 8;
+  viewer.setInsets(top, st.bottom - plate.top + 8);
 }
 const insetRO = new ResizeObserver(() => measureInsets());
 insetRO.observe($('stage'));
 insetRO.observe($('plate'));
+insetRO.observe($('dock'));
 measureInsets();
 
 new ResizeObserver(() => moveInk()).observe($('tabs'));
+syncDock();
 buildModes();
 buildTabs();
 buildPane(false);

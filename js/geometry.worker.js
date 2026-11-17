@@ -1,3 +1,4 @@
+// Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
 // Runs Manifold off the main thread so sliders never stutter.
 import Module from '../vendor/manifold/manifold.js';
 import { buildSet } from './crate.js';

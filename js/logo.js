@@ -1,3 +1,4 @@
+// Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
 // Turns a typed name or an uploaded image into geometry the worker can extrude.
 // The browser renders the text or image to a canvas (so any installed font works, Hebrew included),
 // then solid pixels are merged into rectangles: x0, y0, x1, y1 normalised so the logo is 1 unit wide.

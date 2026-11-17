@@ -1,3 +1,4 @@
+// Argaz, parametric crate configurator. © 2026 Roy Borkin. All rights reserved.
 // Parameter schema. Every control in the UI is generated from this list.
 // `tab` decides which panel(s) it lives in; `show` hides controls that don't apply.
 // The defaults are the "Tnuva classic" crate, modelled on the real crate photo.
@@ -10,10 +11,11 @@ export const MODES = [
 
 export const TABS = [
   { id: 'body', mode: 'crate', label: 'Body', help: 'Overall form. Width is measured across the flats, not corner to corner.' },
-  { id: 'ribs', mode: 'crate', label: 'Ribs', help: 'Horizontal ribs stiffen the walls; the real crate uses pairs of thin lines. Openings fill the space between ribs.' },
-  { id: 'faces', mode: 'crate', label: 'Faces', help: 'Vertical ribs split each face into columns. An odd number of columns gives a solid centre column for the hand hold and the logo.' },
+  { id: 'ribs', mode: 'crate', label: 'Ribs', help: 'Band layout lists the bands between ribs from top to bottom, as relative heights. Add q for small square openings or s for a solid band, e.g. 48q 48 48q 48 28s 28s. Leave it empty to use Ribs and Spacing grade.' },
+  { id: 'faces', mode: 'crate', label: 'Faces', help: 'Vertical ribs split each face into columns. Corner columns stay solid; corner ribs frame them like on the real crate. An odd number of columns gives a centre column for the hand hold and the plate.' },
   { id: 'holes', mode: 'crate', label: 'Holes', help: 'Openings on each face. They stay clear of ribs, pillars, hand holds and the label plate.' },
   { id: 'grips', mode: 'crate', label: 'Grips', help: 'Hand holds cut through the top band. The frame is a raised border around the opening, like on the real crate.' },
+  { id: 'plate', mode: 'crate', label: 'Plate', help: 'A smooth raised panel on the front, like the one on the real crate. Band and span snap it to whole bands, counted from the top; raise it above the ribs to hide them.' },
   { id: 'logo', mode: 'crate', label: 'Logo', help: 'Type a name or upload a PNG, JPG or SVG. Dark or opaque pixels become the logo. Hebrew text works too.' },
   { id: 'base', mode: 'crate', label: 'Base', help: 'Floor thickness and drainage pattern.' },
   { id: 'stack', mode: 'crate', label: 'Stack', help: 'The top rim carries the load when crates stack. The foot sits inside the rim of the crate below; clearance is the gap that lets it drop in and does not change with scale.' },
@@ -21,7 +23,7 @@ export const TABS = [
   { id: 'cstack', mode: 'cover', label: 'Stack', help: 'The skirt locks the cover onto the crate below. The lip on top takes the foot of a crate stacked on the cover, so it stacks from both directions.' },
   { id: 'vents', mode: 'cover', label: 'Vents', help: 'Openings in the cover plate. They stay inside the skirt and the lip.' },
   { id: 'seat', mode: 'cover', label: 'Seat', help: 'Turn the crate into a stool. Straps or ties hold a cushion; the printable frame holds the foam. Export a 1:1 foam cutting template from the Export menu.' },
-  { id: 'split', mode: 'print', label: 'Split', help: 'Print-ready adds 45° chamfers under every rib and moves the floor to the bottom of the foot, so every part prints upright without supports. Nothing here changes the crate unless Print-ready is on.' },
+  { id: 'split', mode: 'print', label: 'Split', help: 'Print-ready adds 45° chamfers under every rib so every part prints upright without supports. The original foot prints as its own ring that plugs into the floor; the 45° shoulder keeps it in one piece. Nothing here changes the crate unless Print-ready is on.' },
   { id: 'joint', mode: 'print', label: 'Joint', help: 'Joints sit at the bottom of a rib, where there are no openings: the lower part grows a tongue, the upper part gets a groove. Vertical cuts use filament pins. Gaps are real millimetres.' },
   { id: 'bed', mode: 'print', label: 'Bed', help: 'Set your printer bed. Parts are laid out on as many plates as needed; anything too big is marked in red. Fit to bed picks wall sections and vertical cuts for you.' },
   { id: 'view', mode: null, label: 'View' },
@@ -33,64 +35,70 @@ export const SCHEMA = [
   { key: 'sides', tab: 'body', label: 'Faces', type: 'range', min: 3, max: 12, step: 1, unit: '', def: 4, hint: 'Number of sides, from a triangle to a dodecagon' },
   { key: 'width', tab: 'body', label: 'Width', type: 'range', min: 120, max: 600, step: 1, unit: 'mm', def: 330, hint: 'Across flats' },
   { key: 'height', tab: 'body', label: 'Height', type: 'range', min: 60, max: 500, step: 1, unit: 'mm', def: 280 },
-  { key: 'corner', tab: 'body', label: 'Corner radius', type: 'range', min: 0, max: 80, step: 0.5, unit: 'mm', def: 16 },
+  { key: 'corner', tab: 'body', label: 'Corner radius', type: 'range', min: 0, max: 80, step: 0.5, unit: 'mm', def: 12},
   { key: 'wall', tab: 'body', label: 'Wall thickness', type: 'range', min: 1, max: 8, step: 0.1, unit: 'mm', def: 3, hint: 'Injection-moulded crates are usually 2.5 to 3.5 mm' },
   { key: 'taper', tab: 'body', label: 'Draft', type: 'range', min: 0, max: 8, step: 0.1, unit: '°', def: 0, hint: 'Flares walls so crates nest' },
   { key: 'scale', tab: 'body', label: 'Scale', type: 'range', min: 0.1, max: 2, step: 0.01, unit: '×', def: 1 },
 
   // Ribs
-  { key: 'ribCount', tab: 'ribs', label: 'Ribs', type: 'range', min: 0, max: 8, step: 1, unit: '', def: 3 },
-  { key: 'ribLines', tab: 'ribs', label: 'Lines per rib', type: 'range', min: 1, max: 3, step: 1, unit: '', def: 2, hint: 'The Tnuva crate uses pairs of thin ribs' },
-  { key: 'ribHeight', tab: 'ribs', label: 'Rib band', type: 'range', min: 1, max: 30, step: 0.5, unit: 'mm', def: 12, hint: 'Total height of a rib, all lines included' },
-  { key: 'ribLineGap', tab: 'ribs', label: 'Line gap', type: 'range', min: 1, max: 12, step: 0.5, unit: 'mm', def: 4, show: (p) => p.ribLines > 1 || p.rimLines > 0 },
-  { key: 'ribDepth', tab: 'ribs', label: 'Rib depth', type: 'range', min: 0, max: 10, step: 0.1, unit: 'mm', def: 2.5, hint: 'How far ribs stand out from the wall' },
-  { key: 'ribGrade', tab: 'ribs', label: 'Spacing grade', type: 'range', min: 0.6, max: 1.6, step: 0.01, unit: '', def: 1, hint: '<1 packs ribs toward the top' },
-  { key: 'baseBand', tab: 'ribs', label: 'Base band', type: 'range', min: 0, max: 40, step: 0.5, unit: 'mm', def: 14 },
+  { key: 'bandSizes', tab: 'ribs', label: 'Band layout', type: 'text', def: '48q 48 48q 48 28s 28s', placeholder: 'e.g. 48q 48 48q 48 28s', hint: 'Bands from top to bottom. q = small squares, s = solid' },
+  { key: 'ribCount', tab: 'ribs', label: 'Ribs', type: 'range', min: 0, max: 8, step: 1, unit: '', def: 3, show: (p) => !String(p.bandSizes || '').trim() },
+  { key: 'ribLines', tab: null, label: 'Lines per rib', type: 'range', min: 1, max: 3, step: 1, unit: '', def: 1, hint: 'The Tnuva crate uses pairs of thin ribs' },
+  { key: 'ribHeight', tab: 'ribs', label: 'Rib band', type: 'range', min: 1, max: 30, step: 0.5, unit: 'mm', def: 4, hint: 'Total height of a rib, all lines included' },
+  { key: 'ribLineGap', tab: 'ribs', label: 'Line gap', type: 'range', min: 1, max: 12, step: 0.5, unit: 'mm', def: 5, show: (p) => p.ribLines > 1 || p.rimLines > 0 },
+  { key: 'ribDepth', tab: 'ribs', label: 'Rib depth', type: 'range', min: 0, max: 10, step: 0.1, unit: 'mm', def: 2.8, hint: 'How far ribs stand out from the wall' },
+  { key: 'ribGrade', tab: 'ribs', label: 'Spacing grade', type: 'range', min: 0.6, max: 1.6, step: 0.01, unit: '', def: 1, hint: '<1 packs ribs toward the top', show: (p) => !String(p.bandSizes || '').trim() },
+  { key: 'baseBand', tab: 'ribs', label: 'Base band', type: 'range', min: 0, max: 40, step: 0.5, unit: 'mm', def: 5},
 
   // Faces
-  { key: 'altBands', tab: 'faces', label: 'Alternate bands', type: 'toggle', half: true, def: true, hint: 'Every other band gets a grid of small openings, starting at the top' },
-  { key: 'columns', tab: 'faces', label: 'Columns', type: 'range', min: 1, max: 7, step: 1, unit: '', def: 3 },
-  { key: 'centerCol', tab: 'faces', label: 'Centre column', type: 'range', min: 0, max: 260, step: 1, unit: 'mm', def: 128, show: (p) => p.columns > 1 && p.columns % 2 === 1, hint: '0 makes all columns equal' },
-  { key: 'vRibWidth', tab: 'faces', label: 'Vertical rib', type: 'range', min: 1.5, max: 12, step: 0.5, unit: 'mm', def: 4, show: (p) => p.columns > 1 },
+  { key: 'altBands', tab: 'faces', label: 'Alternate bands', type: 'toggle', half: true, def: true, hint: 'Every other band gets a grid of small openings, starting at the top. Ignored when Band layout is set', show: (p) => !String(p.bandSizes || '').trim() },
+  { key: 'columns', tab: 'faces', label: 'Columns', type: 'range', min: 1, max: 7, step: 1, unit: '', def: 3},
+  { key: 'centerCol', tab: 'faces', label: 'Centre column', type: 'range', min: 0, max: 260, step: 1, unit: 'mm', def: 126, show: (p) => p.columns > 1 && p.columns % 2 === 1, hint: '0 makes all columns equal' },
+  { key: 'vRibWidth', tab: 'faces', label: 'Vertical rib', type: 'range', min: 1.5, max: 12, step: 0.5, unit: 'mm', def: 3.5, show: (p) => p.columns > 1 },
+  { key: 'cornerRibs', tab: 'faces', label: 'Corner ribs', type: 'range', min: 0, max: 2, step: 1, unit: '', def: 2, hint: '1: a rib at the inner edge of the corner column. 2: another at the corner itself' },
+  { key: 'pillarWidth', tab: 'faces', label: 'Corner column', type: 'range', min: 4, max: 80, step: 0.5, unit: 'mm', def: 34, hint: 'Solid strip at each corner, measured along the flat face' },
   { key: 'altShape', tab: 'faces', label: 'Band openings', type: 'segment', options: [['rect', 'Square'], ['circle', 'Round'], ['hex', 'Hex'], ['diamond', 'Diamond']], def: 'rect', show: showIf('altBands') },
-  { key: 'altSize', tab: 'faces', label: 'Opening size', type: 'range', min: 3, max: 30, step: 0.5, unit: 'mm', def: 10, show: showIf('altBands') },
+  { key: 'altSize', tab: 'faces', label: 'Opening size', type: 'range', min: 3, max: 30, step: 0.5, unit: 'mm', def: 8, show: showIf('altBands') },
 
   // Holes
   { key: 'holes', tab: 'holes', label: 'Openings', type: 'toggle', half: true, def: true },
   { key: 'holeFill', tab: 'holes', label: 'Fill bands', type: 'toggle', half: true, def: true, show: showIf('holes'), hint: 'On: openings stretch to fill each band. Off: they keep the exact height you set' },
-  { key: 'holeShape', tab: 'holes', label: 'Shape', type: 'segment', options: [['slot', 'Slot'], ['rect', 'Square'], ['circle', 'Round'], ['hex', 'Hex'], ['diamond', 'Diamond']], def: 'slot', show: showIf('holes') },
-  { key: 'holeWidth', tab: 'holes', label: 'Opening width', type: 'range', min: 3, max: 60, step: 0.5, unit: 'mm', def: 8, show: showIf('holes') },
+  { key: 'holeShape', tab: 'holes', label: 'Shape', type: 'segment', options: [['slot', 'Slot'], ['rect', 'Square'], ['circle', 'Round'], ['hex', 'Hex'], ['diamond', 'Diamond']], def: 'rect', show: showIf('holes') },
+  { key: 'holeWidth', tab: 'holes', label: 'Opening width', type: 'range', min: 3, max: 60, step: 0.5, unit: 'mm', def: 6, show: showIf('holes') },
   { key: 'holeHeight', tab: 'holes', label: 'Opening height', type: 'range', min: 3, max: 120, step: 0.5, unit: 'mm', def: 36, show: showIf('holes') },
   { key: 'holeGapX', tab: 'holes', label: 'Bar width', type: 'range', min: 2, max: 30, step: 0.5, unit: 'mm', def: 5, show: showIf('holes'), hint: 'Solid plastic left between neighbouring openings' },
   { key: 'holeGapY', tab: 'holes', label: 'Row gap', type: 'range', min: 2, max: 30, step: 0.5, unit: 'mm', def: 6, show: showIf('holes') },
-  { key: 'holeMargin', tab: 'holes', label: 'Edge margin', type: 'range', min: 2, max: 40, step: 0.5, unit: 'mm', def: 7, show: showIf('holes') },
+  { key: 'holeMargin', tab: 'holes', label: 'Edge margin', type: 'range', min: 2, max: 40, step: 0.5, unit: 'mm', def: 6, show: showIf('holes') },
   { key: 'holeRadius', tab: null, def: 1.5 },
 
   // Grips
   { key: 'handles', tab: 'grips', label: 'Hand holds', type: 'toggle', half: true, def: true },
-  { key: 'handleLip', tab: 'grips', label: 'Frame', type: 'toggle', half: true, def: true, show: showIf('handles') },
+  { key: 'handleLip', tab: 'grips', label: 'Frame', type: 'toggle', half: true, def: false, show: showIf('handles') },
   { key: 'handleFaces', tab: 'grips', label: 'On faces', type: 'segment', options: [['all', 'All'], ['pair', 'Opposite'], ['front', 'Front']], def: 'all', show: showIf('handles') },
-  { key: 'handleShape', tab: 'grips', label: 'Shape', type: 'segment', options: [['rect', 'Rounded'], ['slot', 'Slot']], def: 'rect', show: showIf('handles') },
-  { key: 'handleWidth', tab: 'grips', label: 'Grip width', type: 'range', min: 40, max: 200, step: 1, unit: 'mm', def: 110, show: showIf('handles') },
-  { key: 'handleHeight', tab: 'grips', label: 'Grip height', type: 'range', min: 15, max: 60, step: 0.5, unit: 'mm', def: 30, show: showIf('handles') },
-  { key: 'handleTop', tab: 'grips', label: 'From top', type: 'range', min: 6, max: 80, step: 0.5, unit: 'mm', def: 24, show: showIf('handles') },
-  { key: 'handleRadius', tab: 'grips', label: 'Corner radius', type: 'range', min: 0, max: 20, step: 0.5, unit: 'mm', def: 7, show: (p) => p.handles && p.handleShape === 'rect' },
+  { key: 'handleShape', tab: 'grips', label: 'Shape', type: 'segment', options: [['tub', 'Tub'], ['rect', 'Rounded'], ['slot', 'Slot']], def: 'tub', show: showIf('handles'), hint: 'Tub: flat top under the rim, round bottom, like the real crate' },
+  { key: 'handleWidth', tab: 'grips', label: 'Grip width', type: 'range', min: 40, max: 200, step: 1, unit: 'mm', def: 112, show: showIf('handles') },
+  { key: 'handleHeight', tab: 'grips', label: 'Grip height', type: 'range', min: 15, max: 60, step: 0.5, unit: 'mm', def: 40, show: showIf('handles') },
+  { key: 'handleTop', tab: 'grips', label: 'From top', type: 'range', min: 6, max: 80, step: 0.5, unit: 'mm', def: 27, show: showIf('handles') },
+  { key: 'handleRadius', tab: 'grips', label: 'Top radius', type: 'range', min: 0, max: 20, step: 0.5, unit: 'mm', def: 4, show: (p) => p.handles && p.handleShape !== 'slot' },
+  { key: 'handleRadiusB', tab: 'grips', label: 'Bottom radius', type: 'range', min: 0, max: 40, step: 0.5, unit: 'mm', def: 16, show: (p) => p.handles && p.handleShape === 'tub' },
   { key: 'handleLipWidth', tab: null, def: 3.5 },
 
   // Logo + label plate
   { key: 'logo', tab: 'logo', label: 'Logo', type: 'toggle', half: true, def: true },
-  { key: 'label', tab: 'logo', label: 'Label plate', type: 'toggle', half: true, def: true, hint: 'A raised panel behind the logo' },
+  { key: 'label', tab: 'plate', label: 'Label plate', type: 'toggle', half: true, def: true, hint: 'A raised panel behind the logo' },
   { key: 'logoSource', tab: 'logo', label: 'Source', type: 'segment', options: [['text', 'Text'], ['image', 'Image']], def: 'text', show: showIf('logo') },
   { key: 'logoText', tab: 'logo', label: 'Text', type: 'text', def: 'TNUVA', show: (p) => p.logo && p.logoSource === 'text', placeholder: 'Type a name' },
   { key: 'logoImage', tab: 'logo', label: 'Image', type: 'file', accept: 'image/png,image/jpeg,image/svg+xml,image/webp', def: '', show: (p) => p.logo && p.logoSource === 'image', noUrl: true },
   { key: 'logoStyle', tab: 'logo', label: 'Style', type: 'segment', options: [['emboss', 'Raised'], ['engrave', 'Engraved'], ['cut', 'Cut through']], def: 'emboss', show: showIf('logo') },
   { key: 'logoDepth', tab: 'logo', label: 'Depth', type: 'range', min: 0.2, max: 4, step: 0.1, unit: 'mm', def: 1, show: (p) => p.logo && p.logoStyle !== 'cut', hint: 'Real millimetres: stays the same at any scale' },
   { key: 'logoFaces', tab: 'logo', label: 'On faces', type: 'segment', options: [['front', 'Front'], ['pair', 'Opposite'], ['all', 'All']], def: 'pair', show: showIf('logo') },
-  { key: 'labelWidth', tab: 'logo', label: 'Plate width', type: 'range', min: 30, max: 260, step: 1, unit: 'mm', def: 116, show: (p) => p.label || p.logo },
-  { key: 'labelHeight', tab: 'logo', label: 'Plate height', type: 'range', min: 15, max: 160, step: 1, unit: 'mm', def: 40, show: (p) => p.label || p.logo },
+  { key: 'labelBand', tab: 'plate', label: 'In band', type: 'range', min: 0, max: 6, step: 1, unit: '', def: 2, show: (p) => p.label || p.logo, hint: '0 places the plate freely with Height and Position' },
+  { key: 'labelSpan', tab: 'plate', label: 'Bands tall', type: 'range', min: 1, max: 4, step: 1, unit: '', def: 2, show: (p) => (p.label || p.logo) && p.labelBand > 0 },
+  { key: 'labelWidth', tab: 'plate', label: 'Plate width', type: 'range', min: 30, max: 260, step: 1, unit: 'mm', def: 114, show: (p) => p.label || p.logo },
+  { key: 'labelHeight', tab: 'plate', label: 'Plate height', type: 'range', min: 15, max: 160, step: 1, unit: 'mm', def: 40, show: (p) => (p.label || p.logo) && !(p.labelBand > 0) },
   { key: 'logoFont', tab: null, def: 'sans' },
-  { key: 'labelZ', tab: null, def: 0.6 },
-  { key: 'labelRaise', tab: null, def: 1 },
+  { key: 'labelZ', tab: 'plate', label: 'Position', type: 'range', min: 0.1, max: 0.9, step: 0.01, unit: '', def: 0.6, show: (p) => (p.label || p.logo) && !(p.labelBand > 0), hint: 'Height of the plate centre, as a share of the wall' },
+  { key: 'labelRaise', tab: 'plate', label: 'Raise', type: 'range', min: 0, max: 6, step: 0.1, unit: 'mm', def: 3.2, show: showIf('label'), hint: 'Raise it above the rib depth to hide the ribs behind it' },
 
   // Base
   { key: 'floor', tab: 'base', label: 'Floor thickness', type: 'range', min: 1, max: 10, step: 0.1, unit: 'mm', def: 3 },
@@ -101,12 +109,11 @@ export const SCHEMA = [
   { key: 'floorMargin', tab: 'base', label: 'Floor margin', type: 'range', min: 2, max: 60, step: 0.5, unit: 'mm', def: 12, show: (p) => p.floorPattern !== 'none' },
 
   // Stack: rim, pillars, foot
-  { key: 'rimHeight', tab: 'stack', label: 'Top rim', type: 'range', min: 2, max: 40, step: 0.5, unit: 'mm', def: 14 },
+  { key: 'rimHeight', tab: 'stack', label: 'Top rim', type: 'range', min: 2, max: 40, step: 0.5, unit: 'mm', def: 11},
   { key: 'rimDepth', tab: 'stack', label: 'Rim depth', type: 'range', min: 0, max: 12, step: 0.1, unit: 'mm', def: 3.5 },
-  { key: 'rimLines', tab: 'stack', label: 'Lines under rim', type: 'range', min: 0, max: 3, step: 1, unit: '', def: 1 },
-  { key: 'pillars', tab: 'stack', label: 'Corner pillars', type: 'toggle', half: true, def: true },
+  { key: 'rimLines', tab: 'stack', label: 'Lines under rim', type: 'range', min: 0, max: 3, step: 1, unit: '', def: 2},
+  { key: 'pillars', tab: 'stack', label: 'Corner pillars', type: 'toggle', half: true, def: false, hint: 'Corner columns stand proud of the wall' },
   { key: 'foot', tab: 'stack', label: 'Stacking foot', type: 'toggle', half: true, def: true, hint: 'Locks into the crate below' },
-  { key: 'pillarWidth', tab: 'stack', label: 'Pillar width', type: 'range', min: 4, max: 80, step: 0.5, unit: 'mm', def: 22, show: showIf('pillars') },
   { key: 'footHeight', tab: 'stack', label: 'Foot height', type: 'range', min: 2, max: 30, step: 0.5, unit: 'mm', def: 8, show: showIf('foot') },
   { key: 'footClear', tab: 'stack', label: 'Fit clearance', type: 'range', min: 0, max: 4, step: 0.05, unit: 'mm', def: 0.8, show: showIf('foot') },
   { key: 'pillarDepth', tab: null, def: 2.5 },
@@ -119,10 +126,10 @@ export const SCHEMA = [
   { key: 'shuffle', tab: 'view', label: 'Shuffle', type: 'action', half: true, show: showIf('mixColors') },
   { key: 'colorSeed', tab: null, def: 1, live: true },
   { key: 'gloss', tab: 'view', label: 'Gloss', type: 'range', min: 0, max: 1, step: 0.01, unit: '', def: 0.35, live: true },
-  { key: 'stack', tab: 'view', label: 'Stack preview', type: 'range', min: 1, max: 5, step: 1, unit: '', def: 1, live: true },
-  { key: 'explode', tab: ['view', 'split'], label: 'Exploded view', type: 'range', min: 0, max: 1, step: 0.01, unit: '', def: 0, live: true },
-  { key: 'section', tab: 'view', label: 'Section cut', type: 'toggle', half: true, def: false, live: true },
-  { key: 'dims', tab: 'view', label: 'Dimensions', type: 'toggle', half: true, def: true, live: true },
+  { key: 'stack', tab: 'dock', label: 'Stack preview', type: 'range', min: 1, max: 5, step: 1, unit: '', def: 1, live: true },
+  { key: 'explode', tab: 'dock', label: 'Exploded view', type: 'range', min: 0, max: 1, step: 0.01, unit: '', def: 0, live: true },
+  { key: 'section', tab: 'dock', label: 'Section cut', type: 'toggle', half: true, def: false, live: true },
+  { key: 'dims', tab: 'dock', label: 'Dimensions', type: 'toggle', half: true, def: true, live: true },
 
   // Cover
   { key: 'cover', tab: 'lid', label: 'Cover', type: 'toggle', half: true, def: false },
@@ -162,6 +169,7 @@ export const SCHEMA = [
   { key: 'bedView', tab: 'split', label: 'Bed view', type: 'toggle', half: true, def: false, live: true, hint: 'Shows the parts the way they will sit on the print bed' },
   { key: 'splitBase', tab: 'split', label: 'Separate base', type: 'toggle', half: true, def: true, show: showIf('printReady'), hint: 'Splits the floor and foot from the walls' },
   { key: 'sections', tab: 'split', label: 'Wall sections', type: 'range', min: 1, max: 5, step: 1, unit: '', def: 2, show: showIf('printReady'), hint: 'Splits the walls at ribs so tall crates fit your printer' },
+  { key: 'footStyle', tab: 'split', label: 'Foot', type: 'segment', options: [['ring', 'Original, separate ring'], ['chamfer', '45° shoulder']], def: 'ring', show: (p) => p.printReady && p.foot, hint: 'Original: the foot prints as its own ring and plugs into the floor. 45°: one piece with a sloped shoulder and the floor at the bottom' },
   { key: 'vSplit', tab: 'split', label: 'Vertical cut', type: 'segment', options: [['none', 'None'], ['halves', 'Halves'], ['quarters', 'Quarters']], def: 'none', show: showIf('printReady'), hint: 'Cuts every part down the middle so a full-size crate fits a small bed' },
 
   { key: 'joint', tab: 'joint', label: 'Joint', type: 'segment', options: [['snap', 'Snap'], ['glue', 'Glue'], ['press', 'Tight gap']], def: 'snap', show: showIf('printReady') },
@@ -189,22 +197,23 @@ export const NO_URL = new Set(SCHEMA.filter((s) => s.noUrl).map((s) => s.key));
 
 // The first version of the classic crate, before it was matched to the photo.
 const BASIC = {
-  corner: 18, ribLines: 1, ribHeight: 6, baseBand: 12, rimLines: 0, columns: 1, altBands: false,
-  holeWidth: 9, holeGapX: 6, holeGapY: 7, holeMargin: 8, holeRadius: 2,
-  handleShape: 'slot', handleLip: false, handleHeight: 32, handleTop: 20, handleRadius: 8,
-  logo: false, labelWidth: 120, labelHeight: 44, labelZ: 0.42, pillarWidth: 24,
+  corner: 18, ribLines: 1, ribHeight: 6, ribDepth: 2.5, ribLineGap: 4, baseBand: 12, rimHeight: 14, rimLines: 0,
+  bandSizes: '', ribCount: 3, columns: 1, altBands: false, cornerRibs: 0, pillars: true, pillarWidth: 24,
+  holeShape: 'slot', holeWidth: 9, holeGapX: 6, holeGapY: 7, holeMargin: 8, holeRadius: 2,
+  handleShape: 'slot', handleLip: false, handleWidth: 110, handleHeight: 32, handleTop: 20, handleRadius: 8,
+  logo: false, labelBand: 0, labelWidth: 120, labelHeight: 44, labelZ: 0.42, labelRaise: 1,
 };
 
 export const PRESETS = [
   { id: 'classic', name: 'Tnuva classic', p: {} },
   { id: 'basic', name: 'Tnuva basic', p: { ...BASIC } },
-  { id: 'tall', name: 'Tall bottle crate', p: { height: 360, ribCount: 4, altBands: false, holeShape: 'rect', holeWidth: 14, holeHeight: 20, holeFill: false, color: '#1E4FA0' } },
-  { id: 'hex', name: 'Hex bin', p: { sides: 6, width: 300, height: 220, corner: 10, columns: 1, altBands: false, ribLines: 1, ribHeight: 6, holeShape: 'hex', holeWidth: 16, holeHeight: 16, holeFill: false, handleFaces: 'pair', logo: false, label: false, floorPattern: 'hex', color: '#F2B705' } },
-  { id: 'nest', name: 'Nesting tray', p: { height: 140, taper: 5, ribCount: 1, foot: false, columns: 1, altBands: false, holeShape: 'slot', holeWidth: 8, handleFaces: 'pair', logo: false, label: false, color: '#E2367E' } },
+  { id: 'tall', name: 'Tall bottle crate', p: { ...BASIC, height: 360, ribCount: 4, altBands: false, holeShape: 'rect', holeWidth: 14, holeHeight: 20, holeFill: false, color: '#1E4FA0' } },
+  { id: 'hex', name: 'Hex bin', p: { ...BASIC, sides: 6, width: 300, height: 220, corner: 10, columns: 1, altBands: false, ribLines: 1, ribHeight: 6, holeShape: 'hex', holeWidth: 16, holeHeight: 16, holeFill: false, handleFaces: 'pair', logo: false, label: false, floorPattern: 'hex', color: '#F2B705' } },
+  { id: 'nest', name: 'Nesting tray', p: { ...BASIC, height: 140, taper: 5, ribCount: 1, foot: false, columns: 1, altBands: false, holeShape: 'slot', holeWidth: 8, handleFaces: 'pair', logo: false, label: false, color: '#E2367E' } },
   { id: 'desk', name: 'Desk organiser', p: { scale: 0.3, wall: 5, floor: 5, logoDepth: 0.6, color: '#2AA7E0' } },
   { id: 'stool', name: 'Crate stool', p: { cover: true, lidThick: 5, lidLip: false, seat: 'straps', cushion: true, lidRibs: 'radial', lidRibDepth: 10, color: '#2B2F2C' } },
-  { id: 'print', name: 'Print kit, ⅓ scale', p: { scale: 0.33, wall: 6, floor: 6, ribHeight: 18, ribDepth: 4, baseBand: 20, logoDepth: 0.8, printReady: true, sections: 2, cover: true, color: '#E2367E' } },
-  { id: 'full', name: 'Full size on a 256 bed', p: { printReady: true, sections: 2, vSplit: 'quarters', joint: 'glue' } },
+  { id: 'print', name: 'Print kit, ⅓ scale', p: { scale: 0.33, wall: 6, floor: 6, ribHeight: 15, ribDepth: 4, baseBand: 20, logoDepth: 0.8, labelRaise: 4.5, printReady: true, sections: 2, cover: true, color: '#E2367E' } },
+  { id: 'full', name: 'Full size on a 256 bed', p: { ribHeight: 8, printReady: true, sections: 2, vSplit: 'quarters', joint: 'glue' } },
 ];
 
 // Compact URL hash encoding: only values that differ from defaults (images stay out of the URL).
