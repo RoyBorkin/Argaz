@@ -3,6 +3,35 @@
 A browser configurator for stackable plastic crates, based on the Tnuva crate Grasshopper definition.
 Everything runs client-side: [Manifold](https://github.com/elalish/manifold) (WASM) builds a watertight solid in a Web Worker, and [three.js](https://threejs.org) renders it.
 
+![Argaz on desktop](docs/app-desktop.jpg)
+
+## From the real crate to the model
+
+The reference is the Tnuva dairy crate: square, rounded corners, horizontal ribs, rows of vertical slots, hand holds under the rim, and a foot that locks into the crate below.
+
+| The original Tnuva crate | Generated in Argaz |
+| --- | --- |
+| <img src="docs/tnuva-green.png" alt="Original green Tnuva crate" width="420"> | <img src="docs/app-section.jpg" alt="Argaz crate with section cut showing walls, ribs and floor grid" width="420"> |
+| <img src="docs/tnuva-stacked.png" alt="Two Tnuva crates stacked" width="260"> | <img src="docs/app-stack.jpg" alt="Three generated crates stacked in the stack preview" width="420"> |
+
+<img src="docs/tnuva-colors.png" alt="Tnuva crates in pink, blue and dark green" width="320">
+
+The crate comes in several colours; the colour picker sets the preview, the accent of the interface and the colour written into 3MF files.
+
+## Screenshots
+
+| Presets | Hex bin with hex openings |
+| --- | --- |
+| ![Preset menu open](docs/app-presets.jpg) | ![Six-sided bin with hexagonal openings](docs/app-hex.jpg) |
+
+On phones the controls move into a bottom sheet; every tab fits on one screen without scrolling.
+
+<p>
+  <img src="docs/app-phone.jpg" alt="Argaz on a phone, Body tab" width="260">
+  &nbsp;
+  <img src="docs/app-phone-holes.jpg" alt="Argaz on a phone, two blue crates stacked, Holes tab" width="260">
+</p>
+
 ## Deploy to GitHub Pages
 
 1. Create a repository and copy this folder's contents into it (keep the folder structure).
@@ -30,6 +59,7 @@ python3 -m http.server 8000
 | `js/viewer.js` | three.js scene, stack preview, section cut, dimension lines |
 | `js/main.js` | UI generation, undo/redo, presets, sharing, exports |
 | `js/exporters.js` | STL (binary), 3MF, OBJ writers |
+| `docs/` | README images: original crate photos and app screenshots (not loaded by the app) |
 
 ## How the model is built (vs. the Grasshopper definition)
 

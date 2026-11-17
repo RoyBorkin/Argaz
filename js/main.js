@@ -48,7 +48,7 @@ worker.onmessage = (e) => {
     builtKey = job.key; builtQuality = job.quality;
     lastMesh = d.mesh; lastStats = d.stats;
     viewer.setGeometry(d.positions, d.normals, d.stats, first);
-    if (first) { viewer.setStack(state.stack); first = false; }
+    if (first) { viewer.setStack(state.stack); viewer.frame(true); first = false; }
     renderStats(d.stats);
     setBuildState(pending ? 'busy' : 'done', d.stats.ms);
   } else {
@@ -219,7 +219,13 @@ function makeControl(s) {
     const paint = () => {
       let on = null;
       for (const b of btns) { const sel = b.dataset.v === state[s.key]; b.setAttribute('aria-checked', sel); if (sel) on = b; }
-      if (on) requestAnimationFrame(() => { ink.style.transform = `translateX(${on.offsetLeft - 2}px) scaleX(${on.offsetWidth})`; ink.style.left = '2px'; });
+      if (on) requestAnimationFrame(() => {
+        const firstPaint = !ink.style.width;
+        if (firstPaint) ink.style.transition = 'none';
+        ink.style.width = on.offsetWidth + 'px';
+        ink.style.transform = `translateX(${on.offsetLeft}px)`;
+        if (firstPaint) requestAnimationFrame(() => (ink.style.transition = ''));
+      });
       lbl.classList.toggle('changed', state[s.key] !== DEFAULTS[s.key]);
     };
     row.appendChild(seg);
