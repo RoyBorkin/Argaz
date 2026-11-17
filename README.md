@@ -11,6 +11,7 @@ The reference is the Tnuva dairy crate: square, rounded corners, horizontal ribs
 
 | The original Tnuva crate | Generated in Argaz |
 | --- | --- |
+| <img src="docs/tnuva-reference.png" alt="Original green Tnuva crate, front view" width="420"> | <img src="docs/app-desktop.jpg" alt="Tnuva classic preset in Argaz" width="420"> |
 | <img src="docs/tnuva-green.png" alt="Original green Tnuva crate" width="420"> | <img src="docs/app-section.jpg" alt="Argaz crate with section cut showing walls, ribs and floor grid" width="420"> |
 | <img src="docs/tnuva-stacked.png" alt="Two Tnuva crates stacked" width="260"> | <img src="docs/app-stack.jpg" alt="Three generated crates stacked in the stack preview" width="420"> |
 
@@ -32,6 +33,31 @@ On phones the controls move into a bottom sheet; every tab fits on one screen wi
   <img src="docs/app-phone-holes.jpg" alt="Argaz on a phone, two blue crates stacked, Holes tab" width="260">
 </p>
 
+## Matching the real crate
+
+The **Tnuva classic** preset (the default) was rebuilt against a photo of the real crate. The first version is kept as **Tnuva basic**.
+
+| Detail on the real crate | Parameter |
+| --- | --- |
+| Pairs of thin horizontal ribs | Ribs › Lines per rib, Line gap |
+| Extra thin lines under the top rim | Stack › Lines under rim |
+| Vertical ribs splitting each face into three columns, a wide solid centre column | Faces › Columns, Centre column, Vertical rib |
+| Small square openings in every other band, slots in the rest | Faces › Alternate bands, Band openings, Opening size |
+| Rounded-rectangle hand hold with a raised frame | Grips › Shape, Frame, Corner radius |
+| Name moulded into a plate on the front | Logo › Text or Image, Raised / Engraved / Cut through, On faces |
+
+![Hebrew logo raised on the label plate](docs/app-logo.jpg)
+
+### Logo
+
+Type a name (any language the browser can render, Hebrew included) or upload a PNG, JPG, SVG or WebP. Dark or opaque pixels become the logo. It can be raised, engraved or cut through, on the front, on opposite faces or on all faces, and on top of the cover. Depth is in real millimetres. Uploaded images stay in your browser and are not part of shared links.
+
+### View options
+
+The sliders button at the top right of the 3D view holds colour, gloss, stack preview, section cut, dimensions and the exploded view. **Mixed colours** gives every crate in the stack its own colour; **Shuffle** deals a new set.
+
+![Three stacked crates in different colours](docs/app-mixed.jpg)
+
 ## Cover maker
 
 The **Cover** tab builds a lid for the crate: plate thickness, overhang, grip notches or a hand slot, and fit clearance.
@@ -39,7 +65,11 @@ The **Cover** tab builds a lid for the crate: plate thickness, overhang, grip no
 - **Stacks both ways.** A skirt underneath locks the cover onto the crate below; a lip on top takes the foot of a crate stacked on the cover.
 - **Underside ribs** in a grid or radial pattern stiffen it enough to sit on.
 - **Vents** in grid, slot, hex or round patterns stay clear of the skirt and lip.
-- **Seat.** Strap slots, tie holes or a raised frame hold a cushion, so the crate becomes a stool. The cushion is shown as a preview and is not exported.
+- **Seat.** Strap slots, tie holes or a raised frame hold a cushion, so the crate becomes a stool.
+- **Cushion frame:** a printable tray the foam sits in, exported with the print set.
+- **Foam template:** Export › Foam template, SVG gives the cushion outline at 1:1 with the strap or tie positions marked and a 100 mm check line. Print it at 100 % and cut the foam around it.
+
+![Exploded stool: crate, cover, cushion frame and cushion](docs/app-cushion-frame.jpg)
 
 | Crate stool with a cushion | Stacking cover with hex vents |
 | --- | --- |
@@ -53,6 +83,8 @@ The **Print** tab prepares the crate for a 3D printer:
 - **Separate base** splits the floor and stacking foot from the walls; **Wall sections** splits the walls at ribs (where there are no openings) so tall crates fit your printer.
 - **Joints:** *Snap* (catches on the tongue with flex slits, recesses in the groove), *Glue* (a glue gap plus two grooves that hold adhesive) or *Tight gap* (a press fit). Gaps, snap bumps and joint depth are real millimetres and do not change with scale.
 - A cover with features on both faces is split through the middle of its plate, so both halves print flat; corner pegs line them up.
+- **Vertical cut** (halves or quarters) splits every part down the middle so a full-size crate fits a small bed. On a square crate the cut runs along a vertical rib, so it crosses solid plastic. The pieces are joined with pins cut from 1.75 mm filament plus glue; the holes are already in the parts.
+- **Bed:** pick a printer or set any bed size up to 1 m, so the same tool works for large-format printers. **Fit to bed** turns on Print-ready and picks wall sections and vertical cuts for that bed. Nothing in the Print tab changes the crate unless Print-ready is on, so the model stays a normal crate for other manufacturing methods.
 - **Exploded view** pulls the parts apart with labels; **Bed view** lays them out on the print bed, packed onto as many plates as your printer needs. Oversized or too-tall parts are marked in red.
 - Export the whole set as one **3MF** (every part laid out) or as a **zip of STL files**, one per part, already oriented, with assembly notes.
 
@@ -61,6 +93,8 @@ The **Print** tab prepares the crate for a 3D printer:
 | ![Exploded crate with part labels](docs/app-exploded.jpg) | ![Parts packed onto two print plates](docs/app-bed.jpg) |
 
 ![Section through the exploded parts showing tongue, groove and chamfers](docs/app-joint-section.jpg)
+
+![Full-size crate cut into quarters on a 256 mm bed: 12 parts on 7 plates](docs/app-quarters.jpg)
 
 ## Scale and thickness
 
@@ -90,11 +124,12 @@ python3 -m http.server 8000
 | `index.html` | Page shell, import map |
 | `css/app.css` | Layout (desktop side panel, phone bottom sheet), controls, motion |
 | `js/params.js` | Parameter schema, tabs, presets, URL encoding. Add a parameter here and the UI builds itself |
-| `js/crate.js` | The geometry: crate shell, panels, ribs, rim, pillars, hand holds, label plate, floor, foot, draft; print splitting with snap, glue and press joints; cover and cushion |
+| `js/crate.js` | The geometry: crate shell, column ribs, twin ribs, alternating bands, hand holds with frames, label plate and logo, floor, foot, draft; print splitting with snap, glue and press joints; vertical cuts with filament pins; cover, cushion frame and cushion |
 | `js/geometry.worker.js` | Runs `crate.js` off the main thread, computes creased normals |
 | `js/viewer.js` | three.js scene: parts, stack preview, exploded view, animated bed view, part callouts, section cut, dimension lines |
 | `js/main.js` | UI generation, undo/redo, presets, sharing, exports |
 | `js/exporters.js` | STL (binary), multi-object 3MF, OBJ, ZIP writers |
+| `js/logo.js` | Renders logo text or an uploaded image to a canvas and turns it into rectangles for the geometry |
 | `docs/` | README images: original crate photos and app screenshots (not loaded by the app) |
 
 ## How the model is built (vs. the Grasshopper definition)

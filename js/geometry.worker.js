@@ -6,11 +6,11 @@ let wasm = null;
 const ready = Module({ locateFile: (f) => new URL('../vendor/manifold/' + f, import.meta.url).href }).then((m) => { m.setup(); wasm = m; });
 
 self.onmessage = async (e) => {
-  const { id, params, quality } = e.data;
+  const { id, params, quality, logo } = e.data;
   try {
     await ready;
     const t0 = performance.now();
-    const res = buildSet(wasm, params, quality);
+    const res = buildSet(wasm, params, quality, logo);
     const transfer = [];
     const parts = res.parts.map((p) => {
       const { positions, normals } = creased(p.positions, p.numProp, p.index, 32);

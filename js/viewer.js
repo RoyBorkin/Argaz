@@ -175,6 +175,7 @@ export class Viewer {
         g.userData.copy = e.objs.length;
         if (animateNew && e.objs.length > 0) g.userData.drop = 1; // drop in from above
         e.objs.push(g);
+        this._paintCopy(e, g, e.objs.length - 1);
       }
       while (e.objs.length > want) this.root.remove(e.objs.pop());
     }
@@ -278,8 +279,38 @@ export class Viewer {
 
   // ---------------- look ----------------
   setColor(hex) { this.mat.color.set(hex); this.capMat.color.set(hex).multiplyScalar(0.55); this._dirty = true; }
+  // per-crate colours in the stack preview (null = all the same)
+  setMix(colors) {
+    this.mix = colors;
+    this.copyMats = this.copyMats || [];
+    for (const e of this.parts.values()) e.objs.forEach((o, i) => this._paintCopy(e, o, i));
+    this._dirty = true;
+  }
+  _matFor(i) {
+    if (!this.mix || i === 0) return [this.mat, this.capMat];
+    const c = this.mix[i % this.mix.length];
+    let m = this.copyMats[i];
+    if (!m) {
+      m = this.copyMats[i] = [this.mat.clone(), this.capMat.clone()];
+      m[0].clippingPlanes = [this.clip]; m[1].clippingPlanes = [this.clip];
+    }
+    m[0].color.set(c);
+    for (const k of ['roughness', 'clearcoat', 'clearcoatRoughness']) m[0][k] = this.mat[k];
+    m[1].color.set(c).multiplyScalar(0.55);
+    return m;
+  }
+  _paintCopy(e, o, i) {
+    if (e.info.kind === 'cushion') return;
+    const crateKind = e.info.kind === 'crate' || e.info.kind === 'base' || e.info.kind === 'section';
+    const [m, c] = this._matFor(crateKind ? i : 0);
+    o.children[0].material = m; o.children[1].material = c;
+  }
   setFabric(hex) { this.fabric.color.set(hex); this.fabricCap.color.set(hex).multiplyScalar(0.7); this._dirty = true; }
-  setGloss(g) { this.mat.roughness = 0.85 - g * 0.7; this.mat.clearcoat = g * 0.6; this.mat.clearcoatRoughness = 0.5 - g * 0.4; this._dirty = true; }
+  setGloss(g) {
+    this.mat.roughness = 0.85 - g * 0.7; this.mat.clearcoat = g * 0.6; this.mat.clearcoatRoughness = 0.5 - g * 0.4;
+    for (const m of this.copyMats || []) if (m) for (const k of ['roughness', 'clearcoat', 'clearcoatRoughness']) m[0][k] = this.mat[k];
+    this._dirty = true;
+  }
   setSection(on) {
     if (on === this.sectionOn) return;
     this.sectionOn = on;
@@ -398,6 +429,7 @@ export class Viewer {
       else v.set(gb.max.x, (gb.min.y + gb.max.y) / 2, (gb.min.z + gb.max.z) / 2);
       v.applyMatrix4(o.matrixWorld).project(this.camera);
       el.classList.toggle('on-bed', bed);
+      el.classList.toggle('dense', this.parts.size > 6);
       el.style.opacity = show;
       el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
     }

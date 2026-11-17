@@ -5,7 +5,7 @@
 
 const TAU = Math.PI * 2;
 
-export function buildSet(wasm, P, quality = 1) {
+export function buildSet(wasm, P, quality = 1, logo = null) {
   const { Manifold, CrossSection } = wasm;
   const trash = [];
   const T = (o) => { trash.push(o); return o; };
@@ -121,22 +121,39 @@ export function buildSet(wasm, P, quality = 1) {
   }
 
   // ---------- vertical band layout ----------
+  // A rib band can be several thin lines (the real crate uses pairs); the rim can have extra lines under it.
   const baseH = Math.min(P.baseBand, H * 0.3);
   const rimH = Math.min(P.rimHeight, H * 0.3);
   const ribs = Math.round(P.ribCount);
   const ribH = P.ribHeight;
-  const span = Math.max(0, H - rimH - baseH - ribs * ribH);
+  const nl = Math.max(1, Math.round(P.ribLines || 1));
+  const lgap = nl > 1 ? Math.min(P.ribLineGap, (ribH * 0.6) / (nl - 1)) : 0;
+  const lineH = (ribH - (nl - 1) * lgap) / nl;
+  const rimL = Math.max(0, Math.round(P.rimLines || 0));
+  const rimLineH = Math.min(nl > 1 ? lineH : ribH * 0.6, 6);
+  const rimGap = Math.max(2, P.ribLineGap);
+  const rimTotal = Math.min(rimH + rimL * (rimLineH + rimGap), H * 0.4);
+  const span = Math.max(0, H - rimTotal - baseH - ribs * ribH);
   const weights = []; for (let i = 0; i <= ribs; i++) weights.push(Math.pow(P.ribGrade, i));
   const wsum = weights.reduce((x, y) => x + y, 0);
   const zones = [], bands = [];
-  bands.push({ z0: 0, z1: baseH, depth: P.ribDepth, kind: 'base' });
+  bands.push({ z0: 0, z1: baseH, depth: P.ribDepth, kind: 'base', lines: [[0, baseH, P.ribDepth]] });
   let z = baseH;
   for (let i = 0; i <= ribs; i++) {
     const zh = (span * weights[i]) / wsum;
     zones.push({ z0: z, z1: z + zh }); z += zh;
-    if (i < ribs) { bands.push({ z0: z, z1: z + ribH, depth: P.ribDepth, kind: 'rib' }); z += ribH; }
+    if (i < ribs) {
+      const lines = [];
+      for (let j = 0; j < nl; j++) { const l0 = z + j * (lineH + lgap); lines.push([l0, l0 + lineH, P.ribDepth]); }
+      bands.push({ z0: z, z1: z + ribH, depth: P.ribDepth, kind: 'rib', lines });
+      z += ribH;
+    }
   }
-  bands.push({ z0: H - rimH, z1: H, depth: P.rimDepth, kind: 'rim' });
+  {
+    const lines = [[H - rimH, H, P.rimDepth]];
+    for (let j = 0; j < rimL; j++) { const top = H - rimH - rimGap - j * (rimLineH + rimGap); lines.push([top - rimLineH, top, P.ribDepth]); }
+    bands.push({ z0: H - rimTotal, z1: H, depth: P.rimDepth, kind: 'rim', lines });
+  }
 
   const tf = Math.min(P.floor, H * 0.5);
   const footH = P.foot ? P.footHeight : 0;
@@ -149,7 +166,10 @@ export function buildSet(wasm, P, quality = 1) {
   // CRATE BODY (z = 0 at the bottom of the walls; foot added below, then everything shifted up by footH)
   // =====================================================================
   const solids = [];
-  const label = P.label ? { w: Math.min(P.labelWidth, straight - 2 * holeM), h: Math.min(P.labelHeight, H * 0.6), zc: P.labelZ * H } : null;
+  const logoOn = !!(P.logo && logo && logo.rects && logo.rects.length);
+  const label = P.label || logoOn ? { w: Math.min(P.labelWidth, straight - 2 * holeM), h: Math.min(P.labelHeight, H * 0.6), zc: P.labelZ * H, plate: !!P.label } : null;
+  const onFaces = (mode, k) => mode === 'all' || (mode === 'pair' && (N % 2 === 0 ? k % (N / 2) === 0 : k === 0)) || k === 0;
+  const labelFace = (k) => !!label && (k === 0 || (logoOn && onFaces(P.logoFaces, k)));
   const handle = P.handles ? { w: Math.min(P.handleWidth, straight - 10), h: Math.min(P.handleHeight, H * 0.4), top: H - P.handleTop } : null;
   const handleFace = (k) => !!handle && (P.handleFaces === 'all' || (P.handleFaces === 'pair' && (N % 2 === 0 ? k % (N / 2) === 0 : k === 0)) || (P.handleFaces === 'front' && k === 0));
 
@@ -160,37 +180,68 @@ export function buildSet(wasm, P, quality = 1) {
   const hw = P.holeWidth, hh = P.holeHeight, gx = P.holeGapX, gy = P.holeGapY;
   const pillarClear = P.pillars ? Math.min(P.pillarWidth, straight * 0.45) : 0;
   const handleCutters = [];
+  const handleLips = [];
+  // columns across each face, separated by vertical ribs (the real crate has a solid centre column)
+  const usableW = straight - 2 * Math.max(holeM, pillarClear + holeM * 0.5);
+  const colsN = Math.max(1, Math.round(P.columns || 1));
+  const vrw = P.vRibWidth;
+  const colBounds = [-usableW / 2];
+  if (colsN > 1) {
+    const cw = colsN % 2 === 1 && P.centerCol > 0 ? Math.min(P.centerCol, usableW * 0.7) : 0;
+    const side = cw ? (usableW - cw) / (colsN - 1) : usableW / colsN;
+    for (let i = 1; i < colsN; i++) {
+      const mid = (colsN - 1) / 2;
+      let x;
+      if (cw) x = i <= mid ? -usableW / 2 + side * i : usableW / 2 - side * (colsN - i);
+      else x = -usableW / 2 + side * i;
+      colBounds.push(x);
+    }
+  }
+  colBounds.push(usableW / 2);
+  const vRibXs = colBounds.slice(1, -1);
   for (let k = 0; k < N; k++) {
     const polys = [];
-    const usable = straight - 2 * Math.max(holeM, pillarClear + holeM * 0.5);
-    if (P.holes && usable > hw) {
-      const cols = Math.max(0, Math.floor((usable + gx) / (hw + gx)));
-      const totalW = cols * hw + (cols - 1) * gx;
-      for (const zn of zones) {
+    if (P.holes && usableW > hw) {
+      zones.forEach((zn, zi) => {
+        const alt = P.altBands && (zones.length - 1 - zi) % 2 === 0;
+        const shape = alt ? P.altShape : P.holeShape;
+        const w = alt ? P.altSize : hw;
         const zh = zn.z1 - zn.z0 - 2 * holeM * 0.6;
-        if (zh < Math.min(hh, 4)) continue;
+        if (zh < 4) return;
         let rows, rowH;
-        if (P.holeFill) { rows = Math.max(1, Math.round((zh + gy) / (hh + gy))); rowH = (zh - (rows - 1) * gy) / rows; }
+        if (alt) { rows = Math.floor((zh + gy) / (P.altSize + gy)); rowH = P.altSize; }
+        else if (P.holeFill) { rows = Math.max(1, Math.round((zh + gy) / (hh + gy))); rowH = (zh - (rows - 1) * gy) / rows; }
         else { rows = Math.floor((zh + gy) / (hh + gy)); rowH = hh; }
-        if (rows < 1 || rowH < 2) continue;
+        if (rows < 1 || rowH < 2) return;
         const totalH = rows * rowH + (rows - 1) * gy;
         const zc0 = (zn.z0 + zn.z1) / 2 - totalH / 2 + rowH / 2;
-        for (let ri = 0; ri < rows; ri++) {
-          const cz = zc0 + ri * (rowH + gy);
-          for (let ci = 0; ci < cols; ci++) {
-            const cx = -totalW / 2 + hw / 2 + ci * (hw + gx);
-            if (handleFace(k) && Math.abs(cx) < handle.w / 2 + gx + hw / 2 && cz + rowH / 2 > handle.top - handle.h - gy && cz - rowH / 2 < handle.top + gy) continue;
-            if (label && k === 0 && Math.abs(cx) < label.w / 2 + gx * 0.5 + hw / 2 && Math.abs(cz - label.zc) < label.h / 2 + gy * 0.5 + rowH / 2) continue;
-            polys.push(holeShape(P.holeShape, hw, rowH, P.holeRadius, cx, cz));
-            holeCount++;
+        for (let c = 0; c < colBounds.length - 1; c++) {
+          const x0 = colBounds[c] + (c > 0 ? vrw / 2 + gx * 0.6 : 0), x1 = colBounds[c + 1] - (c < colBounds.length - 2 ? vrw / 2 + gx * 0.6 : 0);
+          const inner = x1 - x0;
+          const cols = Math.floor((inner + gx) / (w + gx));
+          if (cols < 1) continue;
+          const totalW = cols * w + (cols - 1) * gx, start = (x0 + x1) / 2 - totalW / 2 + w / 2;
+          for (let ri = 0; ri < rows; ri++) {
+            const cz = zc0 + ri * (rowH + gy);
+            for (let ci = 0; ci < cols; ci++) {
+              const cx = start + ci * (w + gx);
+              if (handleFace(k) && Math.abs(cx) < handle.w / 2 + gx + w / 2 + (P.handleLip ? P.handleLipWidth : 0) && cz + rowH / 2 > handle.top - handle.h - gy - (P.handleLip ? P.handleLipWidth : 0) && cz - rowH / 2 < handle.top + gy) continue;
+              if (labelFace(k) && Math.abs(cx) < label.w / 2 + gx * 0.5 + w / 2 && Math.abs(cz - label.zc) < label.h / 2 + gy * 0.5 + rowH / 2) continue;
+              polys.push(holeShape(shape, w, rowH, P.holeRadius, cx, cz));
+              holeCount++;
+            }
           }
         }
-      }
+      });
     }
     if (handleFace(k)) {
       const hs = holeShape(P.handleShape === 'rect' ? 'rect' : 'slot', handle.w, handle.h, P.handleRadius, 0, handle.top - handle.h / 2);
       polys.push(hs);
       handleCutters.push(faceXform(T(cs([hs]).extrude(80, 0, 0, 1, true)), k, 0, 0, 0));
+      if (P.handleLip && P.handleLipWidth > 0.2) {
+        const frame = T(CrossSection.difference(T(cs([hs]).offset(P.handleLipWidth, 'Round', 2, 24)), cs([hs])));
+        handleLips.push(faceXform(T(frame.extrude(Math.max(P.rimDepth, P.ribDepth) + t * 0.5)), k, -t * 0.5, 0, 0));
+      }
     }
     let panel = cs([roundedRect(straight, H, 0, 0, H / 2)]);
     if (polys.length) panel = T(CrossSection.difference(panel, cs(polys)));
@@ -216,14 +267,25 @@ export function buildSet(wasm, P, quality = 1) {
   // bands (+ 45° chamfers under them in print mode so they print without supports)
   const bandSolids = [];
   for (const b of bands) {
-    if (b.depth <= 0.05) continue;
-    bandSolids.push(ring(b.depth, -t * 0.5, b.z0, b.z1));
-    if (printMode && b.z0 > 0.5) {
-      const ch = Math.max(0.6, Math.min(b.depth + t * 0.5, holeM * 0.6 - 0.3, b.z0 - 0.5));
-      const fr = hull([slab(b.depth, b.z0, b.z0 + 0.01), slab(-t * 0.5, b.z0 - ch, b.z0 - ch + 0.01)]);
-      bandSolids.push(diff(fr, slab(-t * 0.6, b.z0 - ch - 1, b.z0 + 1)));
+    b.lines.forEach(([z0, z1, depth], li) => {
+      if (depth <= 0.05) return;
+      bandSolids.push(ring(depth, -t * 0.5, z0, z1));
+      if (printMode && z0 > 0.5) {
+        // room below this line: the gap to the next line down, or the hole margin at the bottom of the band
+        const below = b.kind === 'rim' ? (li === b.lines.length - 1 ? holeM * 0.6 - 0.3 : rimGap - 0.2) : li === 0 ? holeM * 0.6 - 0.3 : lgap - 0.2;
+        const ch = Math.max(0.6, Math.min(depth + t * 0.5, below, z0 - 0.5));
+        const fr = hull([slab(depth, z0, z0 + 0.01), slab(-t * 0.5, z0 - ch, z0 - ch + 0.01)]);
+        bandSolids.push(diff(fr, slab(-t * 0.6, z0 - ch - 1, z0 + 1)));
+      }
+    });
+  }
+  // vertical ribs between the columns
+  if (vRibXs.length && P.ribDepth > 0.05) {
+    for (let k = 0; k < N; k++) for (const x of vRibXs) {
+      bandSolids.push(faceXform(T(cs([roundedRect(vrw, H - 0.2, 0, x, H / 2)]).extrude(P.ribDepth + t * 0.5)), k, -t * 0.5, 0, 0));
     }
   }
+  bandSolids.push(...handleLips);
   if (rimInner) {
     const z0 = H - rimH;
     if (printMode) {
@@ -237,7 +299,31 @@ export function buildSet(wasm, P, quality = 1) {
     const pr = ringCS(P.pillarDepth, -t * 0.5);
     bandSolids.push(T(T(pr.intersect(cornerMasks(straight / 2 - Math.min(P.pillarWidth, straight * 0.45)))).extrude(H)));
   }
-  if (label && P.labelRaise > 0.05) bandSolids.push(faceXform(T(cs([roundedRect(label.w, label.h, 6)]).extrude(P.labelRaise + t * 0.5)), 0, -t * 0.5, label.zc, 0));
+  if (label && label.plate && P.labelRaise > 0.05) for (let k = 0; k < N; k++) if (labelFace(k)) bandSolids.push(faceXform(T(cs([roundedRect(label.w, label.h, 6)]).extrude(P.labelRaise + t * 0.5)), k, -t * 0.5, label.zc, 0));
+  // logo: emboss adds to the plate, engrave and cut-through are subtracted from the body below
+  const logoCuts = [];
+  let logoCSCache = null;
+  const logoShape = (maxW, maxH) => {
+    if (!logoCSCache) {
+      const polys = [];
+      const R = logo.rects;
+      for (let i = 0; i < R.length; i += 4) polys.push([[R[i], R[i + 1]], [R[i + 2], R[i + 1]], [R[i + 2], R[i + 3]], [R[i], R[i + 3]]]);
+      logoCSCache = T(T(new CrossSection(polys, "Positive")).simplify(0.4 * logo.px));
+    }
+    const k = Math.min(maxW / 1, maxH / logo.aspect);
+    return T(T(logoCSCache.translate([-0.5, -logo.aspect / 2])).scale(k));
+  };
+  if (logoOn) {
+    const sh = logoShape(label.w * 0.82, label.h * 0.72);
+    const surf = label.plate ? P.labelRaise : 0;
+    const depth = abs(P.logoDepth);
+    for (let k = 0; k < N; k++) {
+      if (!(k === 0 || onFaces(P.logoFaces, k))) continue;
+      if (P.logoStyle === 'emboss') bandSolids.push(faceXform(T(sh.extrude(depth + 0.1)), k, surf - 0.1, label.zc, 0));
+      else if (P.logoStyle === 'engrave') logoCuts.push(faceXform(T(sh.extrude(depth + 1)), k, surf - Math.min(depth, (t + surf) * 0.7), label.zc, 0));
+      else logoCuts.push(faceXform(T(sh.extrude(t + surf + 4)), k, -t - 2, label.zc, 0));
+    }
+  }
   {
     let bs = union(bandSolids);
     if (bs && handleCutters.length) bs = diff(bs, union(handleCutters));
@@ -245,6 +331,7 @@ export function buildSet(wasm, P, quality = 1) {
   }
 
   let body = union(solids);
+  if (logoCuts.length) body = diff(body, union(logoCuts));
   if (s !== 1) body = T(body.warp((v) => { const k = 1 + (s - 1) * (Math.max(0, v[2]) / H); v[0] *= k; v[1] *= k; }));
 
   // stacking foot
@@ -379,6 +466,7 @@ export function buildSet(wasm, P, quality = 1) {
   // COVER
   // =====================================================================
   let coverInfo = null;
+  let coverOutline = null;
   if (P.cover) {
     const kTop = s;                          // the cover follows the draft at the rim
     const tp = P.lidThick;
@@ -419,6 +507,7 @@ export function buildSet(wasm, P, quality = 1) {
       if (polys.length) cutters.push(ext(cs(polys), -P.lidRibDepth - 2, tp + 1));
     }
     // cushion fixing
+    const marks = [];
     if (P.seat === 'straps') {
       const sl = [];
       const inset = Math.min(innerLim, lipIn) - P.strapInset;
@@ -426,7 +515,9 @@ export function buildSet(wasm, P, quality = 1) {
         const th = normalAngle(k), n = [Math.cos(th), Math.sin(th)];
         const rr = roundedRect(Math.min(P.strapLen, straight * 0.6), 5, 2.5, 0, 0, 4);
         const ang = (th * 180) / Math.PI + 90;
-        sl.push(T(T(T(cs([rr]).rotate(ang)).translate([n[0] * (a + inset), n[1] * (a + inset)])).extrude(tp + 4)).translate([0, 0, -1]));
+        const c2 = T(T(cs([rr]).rotate(ang)).translate([n[0] * (a + inset), n[1] * (a + inset)]));
+        marks.push(...c2.toPolygons());
+        sl.push(T(T(c2.extrude(tp + 4)).translate([0, 0, -1])));
       }
       cutters.push(union(sl));
     } else if (P.seat === 'ties') {
@@ -437,6 +528,7 @@ export function buildSet(wasm, P, quality = 1) {
         for (const off of [-6, 6]) {
           const px = Math.cos(bh) * cd - Math.sin(bh) * off, py = Math.sin(bh) * cd + Math.cos(bh) * off;
           holes.push(T(T(Manifold.cylinder(tp + 4, 2.6, 2.6, 16)).translate([px, py, -1])));
+          marks.push(Array.from({ length: 12 }, (_, i) => [px + 2.6 * Math.cos((i / 12) * TAU), py + 2.6 * Math.sin((i / 12) * TAU)]));
         }
       }
       cutters.push(union(holes));
@@ -453,6 +545,13 @@ export function buildSet(wasm, P, quality = 1) {
       cutters.push(union(ns));
     } else if (P.lidGrip === 'slot') {
       cutters.push(ext(cs([holeShape('slot', P.gripSize * 3, P.gripSize * 0.75, 0, 0, 0)]), -P.lidRibDepth - 2, tp + 1));
+    }
+    if (logoOn && P.logoCover) {
+      const lim = Math.min(innerLim, lipIn) - 10;
+      const sh = logoShape((a + lim) * 1.1, (a + lim) * 0.5);
+      const d = abs(P.logoDepth);
+      if (P.logoStyle === 'emboss') top = union([top, ext(sh, tp - 0.1, tp + d)]);
+      else cutters.push(ext(sh, P.logoStyle === 'engrave' ? tp - Math.min(d, tp * 0.6) : -P.lidRibDepth - 2, tp + 1));
     }
     const cut = union(cutters);
     top = diff(top, cut);
@@ -482,19 +581,92 @@ export function buildSet(wasm, P, quality = 1) {
     }
     coverInfo = { vents: ventCount, lift: (P.lidLip ? tp + lipH - (P.foot ? footH : 0) : tp) * S, top: (crateTop + tp) * S };
 
-    // cushion (preview only)
+    // cushion frame (printable tray the foam sits in) and the cushion preview
+    const seatLim = (P.lidLip ? lipIn : P.seat === 'frame' ? plateOut - 6 : plateOut) - 1;
+    let cushionLim = seatLim, cushionZ = tp;
+    if (P.cushionFrame) {
+      const fw = 2.4, fb = 2;
+      let tray = union([slab(seatLim, 0, fb), ring(seatLim, seatLim - fw, fb - 0.3, fb + P.cushionFrameH)]);
+      // lighten the tray floor with large openings, keep a 10 mm border
+      const holes = patternHoles('grid', a + seatLim - fw - 10, Math.max(r + seatLim - fw - 10, 0), 34, 0, 8);
+      if (holes.length) tray = diff(tray, ext(cs(holes), -1, fb + 1));
+      parts.push({ id: 'cushionFrame', label: 'Cushion frame', kind: 'cover', solid: T(T(tray.scale([kTop, kTop, 1])).translate([0, 0, crateTop + tp])), flip: false, order: 102 });
+      cushionLim = seatLim - fw - 0.5;
+      cushionZ = tp + fb;
+    }
+    // the foam template is the cushion outline at full size, with strap or tie marks
+    const outline = rpoly(a + cushionLim, Math.max(r + cushionLim, 0), 16).map(([x, y]) => [x * kTop * S, y * kTop * S]);
+    coverOutline = { outline, marks: marks.map((poly) => poly.map(([x, y]) => [x * kTop * S, y * kTop * S])), thick: P.cushionThick * S };
     if (P.cushion) {
-      const lim = (P.lidLip ? lipIn : P.seat === 'frame' ? plateOut - 6 : plateOut) - 1;
       const ct = P.cushionThick, R = Math.min(ct * 0.45, 20), layers = [];
       for (let i = 0; i <= 6; i++) {
-        const ang = (i / 6) * Math.PI; // 0..π around the rounded edge
+        const ang = (i / 6) * Math.PI;
         const zc = ct / 2 - Math.cos(ang) * (ct / 2);
         const inset = R * (1 - Math.sin(ang)) * 0.9;
-        layers.push(slab(lim - inset, zc - 0.01, zc + 0.01));
+        layers.push(slab(cushionLim - inset, zc - 0.01, zc + 0.01));
       }
-      const cushion = T(T(hull(layers).scale([kTop, kTop, 1])).translate([0, 0, crateTop + tp]));
-      parts.push({ id: 'cushion', label: 'Cushion', kind: 'cushion', solid: cushion, flip: false, order: 101, preview: true });
+      const cushion = T(T(hull(layers).scale([kTop, kTop, 1])).translate([0, 0, crateTop + cushionZ]));
+      parts.push({ id: 'cushion', label: 'Cushion', kind: 'cushion', solid: cushion, flip: false, order: 103, preview: true });
     }
+  }
+
+  // =====================================================================
+  // VERTICAL SPLITS (for parts wider than the print bed), aligned with filament pins
+  // =====================================================================
+  if (printMode && P.vSplit && P.vSplit !== 'none') {
+    // run the cut along a vertical rib when the faces have columns, so it crosses solid plastic
+    let c0 = 0;
+    if (N === 4 && vRibXs.length) c0 = vRibXs.reduce((m, x) => (Math.abs(x) < Math.abs(m) ? x : m), vRibXs[0]);
+    const planes = [{ ax: 'x', c: c0 }];
+    if (P.vSplit === 'quarters') planes.push({ ax: 'y', c: N === 4 ? c0 : 0 });
+    const pr = abs(P.pinDia / 2 + P.pinClear), plen = abs(P.pinDepth) * 2;
+    let pinCount = 0;
+    const pinsFor = (m, pl) => {
+      // slice the part on the cut plane, shrink the section so a pin has wall around it, sample points
+      const rot = pl.ax === 'x' ? T(m.rotate([0, 90, 0])) : T(m.rotate([90, 0, 0]));
+      const sec = T(rot.slice(pl.ax === 'x' ? -pl.c : pl.c));
+      const safe = T(sec.offset(-(pr + abs(0.8)), 'Round', 2, 12));
+      const pins = [];
+      for (const comp of safe.decompose().map(T)) {
+        if (comp.area() < pr * pr * 4) continue;           // too thin for a pin (or empty)
+        const bb = comp.bounds();
+        const dx = bb.max[0] - bb.min[0], dy = bb.max[1] - bb.min[1];
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) continue;
+        const n = Math.min(24, Math.max(1, Math.floor(Math.max(dx, dy) / abs(70))));
+        for (let i = 0; i < n; i++) {
+          const f = (i + 0.5) / n;
+          const u = dx >= dy ? bb.min[0] + dx * f : (bb.min[0] + bb.max[0]) / 2;
+          const v = dx >= dy ? (bb.min[1] + bb.max[1]) / 2 : bb.min[1] + dy * f;
+          const probe = T(T(CrossSection.square([0.2, 0.2], true)).translate([u, v]));
+          if (T(comp.intersect(probe)).area() < 0.01) continue;
+          const cyl = T(Manifold.cylinder(plen, pr, pr, 16, true));
+          pins.push(pl.ax === 'x' ? T(T(cyl.rotate([0, 90, 0])).translate([pl.c, v, u])) : T(T(cyl.rotate([90, 0, 0])).translate([u, pl.c, -v])));
+        }
+      }
+      pinCount += pins.length;
+      return pins.length ? union(pins) : null;
+    };
+    const names = { x: ['left', 'right'], y: ['front', 'back'] };
+    for (const pl of planes) {
+      const next = [];
+      for (const p of parts) {
+        if (p.preview) { next.push(p); continue; }
+        // the upper cover half is cut off-centre so its seam is bridged by the lower half when they are glued
+        const c = p.id.startsWith('cover') && p.id !== 'coverUnder' && parts.some((q) => q.id.startsWith('coverUnder')) ? pl.c + a * 0.3 : pl.c;
+        const [hi, lo] = p.solid.splitByPlane(pl.ax === 'x' ? [1, 0, 0] : [0, 1, 0], c);
+        T(hi); T(lo);
+        const vh = hi.volume(), vl = lo.volume();
+        if (vh < 1 || vl < 1) { next.push(p); continue; }
+        const pins = pinsFor(p.solid, { ...pl, c });
+        const tag = (side) => (p.sideTag ? (pl.ax === 'y' ? `${side} ${p.sideTag}` : `${p.sideTag} ${side}`) : side);
+        next.push({ ...p, id: p.id + '-' + names[pl.ax][0], sideTag: tag(names[pl.ax][0]), solid: diff(lo, pins) });
+        next.push({ ...p, id: p.id + '-' + names[pl.ax][1], sideTag: tag(names[pl.ax][1]), solid: diff(hi, pins), order: p.order + 0.01 });
+      }
+      parts.length = 0; parts.push(...next);
+    }
+    for (const p of parts) if (p.sideTag) p.label = `${p.label}, ${p.sideTag}`;
+    notes.push(`Vertical cuts are joined with ${pinCount} pins cut from ${P.pinDia} mm filament, ${P.pinDepth * 2} mm long, plus glue.`);
+    if (parts.some((q) => q.id.startsWith('coverUnder'))) notes.push('The two cover halves are cut off-centre: glue them face to face so each half bridges the other half\'s seam.');
   }
 
   // ---------- output ----------
@@ -527,6 +699,7 @@ export function buildSet(wasm, P, quality = 1) {
     footH: footH * S,
     crateTop: crateTop * S,
     cover: coverInfo,
+    cushionTemplate: coverOutline,
     thickness: { wall: t * S, floor: tf * S, rib: P.ribDepth * S, rim: (P.rimDepth + t * 0.5) * S, lid: P.cover ? P.lidThick * S : null },
   };
   for (const o of trash) { try { o.delete(); } catch (e) {} }

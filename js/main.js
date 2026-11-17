@@ -1,6 +1,7 @@
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { Viewer } from './viewer.js';
-import { SCHEMA, TABS, MODES, DEFAULTS, LIVE_KEYS, PRESETS, PRINTERS, encodeParams, decodeParams } from './params.js';
+import { SCHEMA, TABS, MODES, DEFAULTS, LIVE_KEYS, NO_URL, PRESETS, PRINTERS, encodeParams, decodeParams } from './params.js';
+import { rasterLogo, logoKey, fileToDataURL } from './logo.js';
 import { download, toSTL, toOBJ, to3MF, posed, merge, zipFiles } from './exporters.js';
 
 const $ = (id) => document.getElementById(id);
@@ -28,13 +29,27 @@ const viewer = new Viewer($('canvas'), $('dims'));
 // ---------------- worker (latest-wins queue) ----------------
 const worker = new Worker(new URL('./geometry.worker.js', import.meta.url), { type: 'module' });
 let busy = false, pending = null, reqId = 0, builtKey = '', builtQuality = 0;
-const geomParams = () => Object.fromEntries(Object.entries(state).filter(([k]) => !LIVE_KEYS.has(k)));
+// geometry params: everything except preview-only keys and the raw logo image (sent as rectangles instead)
+const geomParams = () => Object.fromEntries(Object.entries(state).filter(([k]) => !LIVE_KEYS.has(k) && !NO_URL.has(k)));
+let logoCache = { key: null, data: null }, logoJob = null;
 
 function requestBuild(quality = 1) {
+  const lk = logoKey(state);
+  if (lk !== logoCache.key) {
+    // rasterise the logo first (image decoding is async), then build
+    if (!logoJob || logoJob.key !== lk) {
+      const job = { key: lk };
+      logoJob = job;
+      setBuildState('busy');
+      rasterLogo(state).then((data) => { if (logoJob === job) { logoCache = { key: lk, data }; logoJob = null; requestBuild(quality); } })
+        .catch(() => { if (logoJob === job) { logoCache = { key: lk, data: null }; logoJob = null; requestBuild(quality); } });
+    }
+    return;
+  }
   const p = geomParams();
-  const key = JSON.stringify(p);
+  const key = JSON.stringify(p) + '|' + lk;
   if (key === builtKey && quality <= builtQuality && !busy) return;
-  pending = { params: p, quality, key };
+  pending = { params: p, quality, key, logo: logoCache.data };
   pump();
 }
 function pump() {
@@ -42,7 +57,7 @@ function pump() {
   busy = true;
   const job = pending; pending = null;
   setBuildState('busy');
-  worker.postMessage({ id: ++reqId, params: job.params, quality: job.quality });
+  worker.postMessage({ id: ++reqId, params: job.params, quality: job.quality, logo: job.logo });
   worker._job = job;
 }
 worker.onmessage = (e) => {
@@ -159,22 +174,24 @@ function computeLayout(parts) {
       plates.push({ size, big, ok: !big && it.h <= bed[2], items: [it], shelves: big ? [] : [{ y: M, h: it.d, x: M + it.w + M }] });
     }
   }
-  // arrange plates in a row, centred on the origin
-  const total = plates.reduce((s, p) => s + p.size[0], 0) + GAP * Math.max(0, plates.length - 1);
-  let x = -total / 2;
+  // arrange plates in a grid (roughly square), centred on the origin
+  const cols = Math.max(1, Math.ceil(Math.sqrt(plates.length)));
+  const rows = Math.ceil(plates.length / cols);
+  const cellW = Math.max(...plates.map((p) => p.size[0]), bed[0]), cellD = Math.max(...plates.map((p) => p.size[1]), bed[1]);
+  const total = cols * cellW + (cols - 1) * GAP, totalD = rows * cellD + (rows - 1) * GAP;
   const poses = new Map();
   let tallest = 0;
-  for (const pl of plates) {
-    pl.origin = [x, -pl.size[1] / 2];
+  plates.forEach((pl, i) => {
+    const cx = i % cols, cy = Math.floor(i / cols);
+    pl.origin = [-total / 2 + cx * (cellW + GAP), totalD / 2 - cellD - cy * (cellD + GAP)];
     for (const it of pl.items) {
       poses.set(it.p.id, { flip: it.p.flip, pos: [pl.origin[0] + it.at[0] - it.min[0], pl.origin[1] + it.at[1] - it.min[1], -it.min[2]] });
       tallest = Math.max(tallest, it.h);
     }
-    x += pl.size[0] + GAP;
-  }
-  const maxD = Math.max(...plates.map((p) => p.size[1]), 0);
+  });
+  const maxD = totalD;
   return { plates: plates.map((p) => ({ origin: p.origin, size: p.size, ok: p.ok })), poses, count: items.length, tallest, warnings,
-    bounds: [-total / 2, -maxD / 2, total / 2, maxD / 2, tallest] };
+    bounds: [-total / 2, -totalD / 2, total / 2, totalD / 2, tallest] };
 }
 function relayout() {
   if (!lastParts.length) return;
@@ -270,7 +287,7 @@ function selectTab(id) {
 function buildPane(animate) {
   const pane = $('pane');
   pane.innerHTML = '';
-  controls.clear();
+  for (const [k, c] of [...controls]) if (!c.row.isConnected || c.row.closest('#pane')) controls.delete(k);
   const items = SCHEMA.filter((s) => [].concat(s.tab || []).includes(activeTab));
   const halves = items.filter((s) => s.half);
   const rest = items.filter((s) => !s.half);
@@ -374,6 +391,46 @@ function makeControl(s) {
     row.appendChild(seg);
     controls.set(s.key, { row, sync: paint });
     paint();
+  } else if (s.type === 'text') {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'txt'; inp.id = 't-' + s.key; inp.placeholder = s.placeholder || ''; inp.maxLength = 40;
+    inp.setAttribute('aria-label', s.label); inp.spellcheck = false; inp.autocomplete = 'off';
+    lbl.htmlFor = inp.id;
+    let tm = 0;
+    inp.addEventListener('input', () => { clearTimeout(tm); state[s.key] = inp.value; tm = setTimeout(() => set(s.key, inp.value, false), 280); });
+    inp.addEventListener('change', () => set(s.key, inp.value, true));
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
+    const paint = () => { if (document.activeElement !== inp) inp.value = state[s.key]; lbl.classList.toggle('changed', state[s.key] !== DEFAULTS[s.key]); };
+    row.classList.replace('ctl-swatch', 'ctl-text');
+    row.appendChild(inp);
+    controls.set(s.key, { row, sync: paint });
+    paint();
+  } else if (s.type === 'file') {
+    const box = document.createElement('div'); box.className = 'filebox';
+    const btn = document.createElement('button'); btn.className = 'text-btn small'; btn.type = 'button';
+    const thumb = document.createElement('img'); thumb.className = 'thumb'; thumb.alt = '';
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = s.accept || 'image/*'; inp.hidden = true;
+    btn.onclick = () => inp.click();
+    inp.onchange = async () => {
+      const f = inp.files[0]; inp.value = '';
+      if (!f) return;
+      try { set(s.key, await fileToDataURL(f), true); paint(); toast('Logo image loaded'); }
+      catch (err) { toast(err.message || "That file isn't an image this browser can read"); }
+    };
+    const paint = () => { const v = state[s.key]; btn.textContent = v ? 'Replace image' : 'Choose image'; thumb.hidden = !v; if (v) thumb.src = v; };
+    row.classList.replace('ctl-swatch', 'ctl-file');
+    box.append(thumb, btn, inp);
+    row.appendChild(box);
+    controls.set(s.key, { row, sync: paint });
+    paint();
+  } else if (s.type === 'action') {
+    row.classList.replace('ctl-swatch', 'ctl-action');
+    lbl.remove();
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'text-btn action'; btn.textContent = s.label;
+    if (s.hint) btn.title = s.hint;
+    btn.onclick = () => { haptic(); runAction(s.key); };
+    row.appendChild(btn);
+    controls.set(s.key, { row, sync: () => {} });
   } else if (s.type === 'swatches') {
     const box = document.createElement('div'); box.className = 'swatches'; box.role = 'radiogroup'; box.setAttribute('aria-label', s.label);
     const sws = s.options.map((c) => {
@@ -414,10 +471,43 @@ function tabHelp() {
   }
   return base;
 }
+function runAction(key) {
+  if (key === 'shuffle') { set('colorSeed', Math.floor(Math.random() * 1e6) + 1, true); return; }
+  if (key === 'fitBed') {
+    // pick wall sections and vertical cuts so every part fits the bed
+    const k = state.scale, draft = 1 + Math.tan((state.taper * Math.PI) / 180) * state.height / (state.width / 2);
+    const out = Math.max(state.rimDepth, state.ribDepth, state.pillarDepth);
+    const W = (state.width + 2 * out) * k * draft + 2, M = 14;
+    const bx = state.bedX - M, by = state.bedY - M, bz = state.bedZ - 6;
+    const vSplit = W <= Math.min(bx, by) ? 'none' : W / 2 <= bx && W <= by ? 'halves' : 'quarters';
+    const tall = (state.height + (state.foot ? state.footHeight : 0)) * k;
+    const sections = Math.max(1, Math.min(state.ribCount + 1, 5, Math.ceil(tall / bz)));
+    Object.assign(state, { printReady: true, splitBase: true, sections, vSplit });
+    pushHistory(); sync(); requestBuild(1); persist();
+    const msg = vSplit === 'quarters' && W / 2 > Math.min(bx, by) ? 'Even quarters are wider than this bed: scale down or use a bigger printer' : `Set ${sections} wall section${sections > 1 ? 's' : ''}${vSplit !== 'none' ? ' and ' + vSplit : ''} for this bed`;
+    toast(msg);
+    if (Math.ceil(tall / bz) > state.ribCount + 1) setTimeout(() => toast('Add more ribs to split the walls into more sections'), 2400);
+  }
+}
+function mixPalette() {
+  // deterministic shuffle of the swatch colours, the chosen colour first
+  const all = SCHEMA.find((x) => x.key === 'color').options.filter((c) => c.toUpperCase() !== String(state.color).toUpperCase());
+  let seed = state.colorSeed >>> 0 || 1;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+  return [state.color, ...all];
+}
 function syncVisibility() {
   for (const s of SCHEMA) {
     const c = controls.get(s.key);
     if (c) c.row.classList.toggle('hidden', !!(s.show && !s.show(state)));
+  }
+  // tell the phone layout how many rows this tab needs, so rows shrink instead of scrolling
+  const pane = $('pane');
+  if (pane) {
+    let full = 0, halves = 0;
+    for (const r of pane.querySelectorAll('.ctl:not(.hidden)')) r.classList.contains('half') ? halves++ : full++;
+    pane.style.setProperty('--n', Math.max(1, full + Math.ceil(halves / 2)));
   }
 }
 function sync(key) {
@@ -447,6 +537,7 @@ function applyLive(key) {
   if (key === 'explode') { viewer.setExplode(state.explode); if (exploding !== state.explode > 0.002) { exploding = state.explode > 0.002; viewer.frame(); } }
   if (key === 'bedView') { viewer.setBedView(state.bedView); renderStats(); setBuildState('done', lastStats ? lastStats.ms : 0); }
   if (key === 'cushionColor') viewer.setFabric(state.cushionColor);
+  if (key === 'mixColors' || key === 'colorSeed' || key === 'color') viewer.setMix(state.mixColors ? mixPalette() : null);
   if (key === 'printer' && state.printer !== 'custom') {
     [state.bedX, state.bedY, state.bedZ] = PRINTERS[state.printer];
     for (const k of ['bedX', 'bedY', 'bedZ']) controls.get(k)?.sync();
@@ -465,6 +556,7 @@ function applyAll() {
   viewer.setSection(state.section);
   viewer.setDims(state.dims);
   viewer.setFabric(state.cushionColor);
+  viewer.setMix(state.mixColors ? mixPalette() : null);
   if (!first) { viewer.setStack(state.stack); viewer.setExplode(state.explode); viewer.setBedView(state.bedView); relayout(); }
   exploding = state.explode > 0.002;
   requestBuild(1);
@@ -509,7 +601,7 @@ function syncUndo() { $('undoBtn').disabled = hIndex === 0; $('redoBtn').disable
 function presetState(pr) { return { ...DEFAULTS, ...pr.p, stack: state.stack, section: state.section, dims: state.dims }; }
 function markPreset() {
   const cur = JSON.stringify(geomParams());
-  const hit = PRESETS.find((pr) => { const ps = presetState(pr); return JSON.stringify(Object.fromEntries(Object.entries(ps).filter(([k]) => !LIVE_KEYS.has(k)))) === cur; });
+  const hit = PRESETS.find((pr) => { const ps = presetState(pr); return JSON.stringify(Object.fromEntries(Object.entries(ps).filter(([k]) => !LIVE_KEYS.has(k) && !NO_URL.has(k)))) === cur; });
   $('presetName').textContent = hit ? hit.name : 'Custom crate';
   return hit;
 }
@@ -546,6 +638,8 @@ function toggleMenu(menu, trigger, placement) {
   if (placement === 'up') {
     left = Math.max(8, Math.min(r.right - mw, innerWidth - mw - 8));
     top = Math.max(8, r.top - mh - 8); origin = 'bottom right';
+  } else if (placement === 'down-right') {
+    left = Math.max(8, r.right - mw); top = r.bottom + 8; origin = 'top right';
   } else {
     left = Math.max(8, Math.min(r.left, innerWidth - mw - 8));
     top = r.bottom + 8; origin = 'top left';
@@ -605,12 +699,33 @@ async function doExport(kind) {
     files.push(['README.txt', printNotes(printable)]);
     download(zipFiles(files), fileBase() + '-parts.zip');
   }
+  if (kind === 'foam-svg') {
+    const tpl = lastStats.cushionTemplate;
+    if (!tpl) return toast('Turn on the cover to make a cushion template');
+    download(new Blob([foamSVG(tpl)], { type: 'image/svg+xml' }), fileBase() + '-foam-template.svg');
+    return toast('Foam template saved at 1:1, print at 100% scale');
+  }
   if (kind === 'obj') download(toOBJ(count(merge(printable.map((p) => p.mesh)))), fileBase() + '.obj');
   if (kind === 'glb') {
     const glb = await new GLTFExporter().parseAsync(viewer.exportObject(), { binary: true });
     download(new Blob([glb], { type: 'model/gltf-binary' }), fileBase() + '.glb');
   }
   toast(`Exported${tris ? `, ${Math.round(tris).toLocaleString()} triangles` : ''}`);
+}
+function foamSVG({ outline, marks, thick }) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of outline) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const m = 15, W = x1 - x0 + 2 * m, H = y1 - y0 + 2 * m + 22;
+  const pt = (p) => `${(p[0] - x0 + m).toFixed(2)},${(y1 - p[1] + m).toFixed(2)}`;
+  const path = (poly) => 'M' + poly.map(pt).join('L') + 'Z';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(1)}mm" height="${H.toFixed(1)}mm" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}">
+  <title>Cushion foam template, 1:1</title>
+  <path d="${path(outline)}" fill="none" stroke="#000" stroke-width="0.4"/>
+  ${marks.map((p) => `<path d="${path(p)}" fill="none" stroke="#c0392b" stroke-width="0.3" stroke-dasharray="1.5 1"/>`).join('\n  ')}
+  <line x1="${m}" y1="${(H - 10).toFixed(2)}" x2="${m + 100}" y2="${(H - 10).toFixed(2)}" stroke="#000" stroke-width="0.4"/>
+  <text x="${m}" y="${(H - 3).toFixed(2)}" font-family="Arial, sans-serif" font-size="4">100 mm check line. Foam ${(x1 - x0).toFixed(0)} × ${(y1 - y0).toFixed(0)} × ${thick.toFixed(0)} mm. Red: strap or tie positions.</text>
+</svg>`;
 }
 function printNotes(parts) {
   const j = { snap: 'Snap: press each part straight down until the catches click.', glue: 'Glue: run a bead of CA or plastic cement into the groove, then press the part above onto the tongue.', press: 'Tight gap: press fit. If it is too tight, sand the tongue lightly; if loose, add a drop of glue.' }[state.joint];
@@ -655,6 +770,17 @@ $('exportMenu').addEventListener('click', (e) => { const b = e.target.closest('[
 $('undoBtn').onclick = undo;
 $('redoBtn').onclick = redo;
 $('fitBtn').onclick = () => viewer.frame();
+$('viewBtn').onclick = (e) => {
+  const pane = $('viewPane');
+  if (openMenu !== $('viewPanel')) {
+    pane.innerHTML = '';
+    for (const [k, c] of [...controls]) if (c.row.closest('#viewPane')) controls.delete(k);
+    const items = SCHEMA.filter((x) => [].concat(x.tab || []).includes('view'));
+    for (const x of [...items.filter((i) => i.half), ...items.filter((i) => !i.half)]) pane.appendChild(makeControl(x));
+    syncVisibility();
+  }
+  toggleMenu($('viewPanel'), e.currentTarget, 'down-right');
+};
 $('shareBtn').onclick = async () => {
   persist();
   const url = location.href;
@@ -664,7 +790,7 @@ $('shareBtn').onclick = async () => {
   } catch (e) { if (e.name !== 'AbortError') toast('Copy the address bar to share this crate'); }
 };
 addEventListener('keydown', (e) => {
-  const typing = e.target.matches('input.val, input[type=color]');
+  const typing = e.target.matches('input:not([type=range]), textarea');
   if (e.key === 'Escape') closeMenus();
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); }
