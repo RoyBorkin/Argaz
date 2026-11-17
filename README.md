@@ -34,9 +34,38 @@ On phones the controls move into a bottom sheet; every tab fits on one screen wi
   <img src="docs/app-phone-holes.jpg" alt="Argaz on a phone, two blue crates stacked, Holes tab" width="260">
 </p>
 
+## Matching the Grasshopper model
+
+The original Grasshopper definition (TNUVA.gh) was exported to OBJ and measured: the faces were sliced and rendered as relief maps, and every rib, panel and opening position was read off and converted at 280 mm height (1 unit = 5.09 mm). The **Tnuva Grasshopper** preset reproduces it; **Tnuva classic** (the default) uses the same structure with the openings from the photo.
+
+| Grasshopper model (OBJ) | Tnuva Grasshopper preset |
+| --- | --- |
+| ![Grasshopper OBJ render](docs/gh-model.jpg) | ![The same crate built in Argaz](docs/app-gh.jpg) |
+
+Face-on relief maps, Grasshopper on the left, Argaz on the right (light = ribs standing proud of the wall):
+
+![Relief comparison of one face](docs/gh-relief-compare.jpg)
+
+What the model showed, and the settings that now cover it:
+
+| In the Grasshopper model | Setting |
+| --- | --- |
+| Thin rib lines (0.2 × 0.7 units ≈ 1 × 3.6 mm), not thick bands; wall 0.3 units ≈ 1.5 mm | Ribs › Rib band, Rib depth; Faces › Vertical rib; Body › Wall thickness |
+| Rib spacing graded toward the top: three lines at 55/15, two at about 5.3, then about 11.1 | Ribs › Band layout `3.7 3.7 3.7 5.3 5.3 11.1 11.1 11.1` |
+| The top and bottom edges are thin flanges, not thick bands | Stack › Top rim, Rim depth; Ribs › Base band |
+| Vertical ribs at the corner, at the corner column edge and at the centre column edges (equal 6.6-unit pitch) | Faces › Corner ribs, Corner column, Columns, Centre column |
+| Two short ribs in the centre column above the hand hold | Faces › Ribs above grip |
+| Plain centre panel under the hand hold: rib lines stop at its edges, on every face | Plate › Panel, Ribs stop, On faces, In band, Bands tall, Raise 0 |
+| Hand hold: flat top, deep round bottom, slight taper, thin raised frame | Grips › Shape Tub, Top radius, Bottom radius, Taper, Frame width |
+| Narrow foot ring just inside the wall line | Stack › Foot height, Foot wall, Fit clearance, Inner lip 0 |
+
+The logo now sits in the free part of the panel, below the hand hold, and openings above the hand hold are split between the short ribs. The previous default is kept as the **Tnuva photo** preset.
+
+![Tnuva classic: Grasshopper structure with the photo's openings](docs/classic-relief.jpg)
+
 ## Matching the real crate
 
-The **Tnuva classic** preset (the default) was rebuilt against a photo of the real crate. The first version is kept as **Tnuva basic**.
+The photo-based version of the crate is kept as the **Tnuva photo** preset and the first version as **Tnuva basic**.
 
 | Detail on the real crate | Parameter |
 | --- | --- |

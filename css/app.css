@@ -419,7 +419,7 @@ button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-ac
   .tabs { padding: 2px 6px 0; }
   .modes { margin: 10px 12px 0; height: 30px; }
   .tab { font-size: 12px; padding: 10px 0 9px; }
-  .pane { padding: 6px 16px 4px; height: calc(var(--row) * 7 + 10px); grid-auto-rows: min(var(--row), calc(var(--row) * 7 / var(--n, 7))); }
+  .pane { padding: 6px 16px 4px; height: max(calc(var(--row) * 7 + 10px), calc(25px * var(--n, 7) + 10px)); grid-auto-rows: max(25px, min(var(--row), calc(var(--row) * 7 / var(--n, 7)))); }
   .help { display: none; }
   .ctl-range { grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) 54px; gap: 8px; }
   .ctl-seg, .ctl-swatch, .ctl-text, .ctl-file { grid-template-columns: minmax(84px, 30%) minmax(0, 1fr); gap: 8px; }

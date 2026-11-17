@@ -82,6 +82,27 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     if (rBot < 0.05) pts.push([x1, y0]); else arc(x1 - rBot, y0 + rBot, rBot, Math.PI * 1.5);
     return pts;
   }
+  function tubTaper(w, h, rTop, rBot, taper, cx, cy) {
+    const wb = w * (1 - Math.min(0.6, taper));
+    rTop = Math.max(0.2, Math.min(rTop, w / 2 - 0.1, h / 2 - 0.1));
+    rBot = Math.max(0.2, Math.min(rBot, wb / 2 - 0.1, h - rTop - 0.1));
+    const pts = [], n = quality >= 1 ? 14 : 7;
+    // quarter arcs only, so a bottom radius larger than half the height never pokes above the top edge
+    const arc = (x, y, rad, a0) => { for (let i = 0; i <= n; i++) { const th = a0 + (Math.PI / 2) * (i / n); pts.push([x + rad * Math.cos(th), y + rad * Math.sin(th)]); } };
+    arc(cx + w / 2 - rTop, cy + h / 2 - rTop, rTop, 0);
+    arc(cx - w / 2 + rTop, cy + h / 2 - rTop, rTop, Math.PI / 2);
+    arc(cx - wb / 2 + rBot, cy - h / 2 + rBot, rBot, Math.PI);
+    arc(cx + wb / 2 - rBot, cy - h / 2 + rBot, rBot, Math.PI * 1.5);
+    return hull2d(pts);
+  }
+  function hull2d(p) {
+    p = p.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lo = [], up = [];
+    for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+    for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+    return lo.slice(0, -1).concat(up.slice(0, -1));
+  }
   function holeShape(shape, w, h, rr, cx, cy) {
     const segs = quality >= 1 ? 6 : 3;
     switch (shape) {
@@ -93,7 +114,7 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
       case 'hex': { const pts = []; for (let i = 0; i < 6; i++) pts.push([cx + (w / 2) * Math.cos((i / 6) * TAU), cy + (h / 2) * Math.sin((i / 6) * TAU)]); return pts; }
       case 'diamond': return [[cx + w / 2, cy], [cx, cy + h / 2], [cx - w / 2, cy], [cx, cy - h / 2]];
       case 'rect': return roundedRect(w, h, rr, cx, cy, segs);
-      case 'tub': return tubRect(w, h, rr, P.handleRadiusB, cx, cy, segs * 2);
+      case 'tub': return (P.handleTaper || 0) > 0.001 ? tubTaper(w, h, rr, P.handleRadiusB, P.handleTaper, cx, cy) : tubRect(w, h, rr, P.handleRadiusB, cx, cy, segs * 2);
       default: return roundedRect(w, h, Math.min(w, h) / 2, cx, cy, segs);
     }
   }
@@ -199,10 +220,11 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     const top = Math.min(zones.length, Math.round(P.labelBand)), span = Math.max(1, Math.round(P.labelSpan));
     const zTop = zones[zones.length - top], zBot = zones[Math.max(0, zones.length - top - span + 1)];
     label.zc = (zTop.z1 + zBot.z0) / 2;
-    label.h = zTop.z1 - zBot.z0 + 2;
+    // a raised plate overlaps the ribs around it; a flush panel stays inside its bands so those ribs remain
+    label.h = zTop.z1 - zBot.z0 + (P.labelRaise > 0.05 ? 2 : -0.2);
   }
   const onFaces = (mode, k) => mode === 'all' || (mode === 'pair' && (N % 2 === 0 ? k % (N / 2) === 0 : k === 0)) || k === 0;
-  const labelFace = (k) => !!label && (k === 0 || (logoOn && onFaces(P.logoFaces, k)));
+  const labelFace = (k) => !!label && (onFaces(P.plateFaces || 'front', k) || (logoOn && onFaces(P.logoFaces, k)));
   const handle = P.handles ? { w: Math.min(P.handleWidth, straight - 10), h: Math.min(P.handleHeight, H * 0.4), top: H - P.handleTop } : null;
   const handleFace = (k) => !!handle && (P.handleFaces === 'all' || (P.handleFaces === 'pair' && (N % 2 === 0 ? k % (N / 2) === 0 : k === 0)) || (P.handleFaces === 'front' && k === 0));
 
@@ -254,8 +276,19 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
         if (rows < 1 || rowH < 2) return;
         const totalH = rows * rowH + (rows - 1) * gy;
         const zc0 = (zn.z0 + zn.z1) / 2 - totalH / 2 + rowH / 2;
+        // column intervals; above the hand hold the centre column is split again by the short ribs there
+        const spans = [];
         for (let c = 0; c < colBounds.length - 1; c++) {
           const x0 = colBounds[c] + (c > 0 ? vrw / 2 + gx * 0.6 : 0), x1 = colBounds[c + 1] - (c < colBounds.length - 2 ? vrw / 2 + gx * 0.6 : 0);
+          const isMid = colsN % 2 === 1 && colsN > 1 && c === (colsN - 1) / 2;
+          if (isMid && handleFace(k) && P.centerTopRibs > 0 && zn.z0 >= handle.top - 1) {
+            const n = Math.round(P.centerTopRibs), cx0 = colBounds[c], cx1 = colBounds[c + 1];
+            let left = x0;
+            for (let i = 1; i <= n; i++) { const xr = cx0 + ((cx1 - cx0) * i) / (n + 1); spans.push([left, xr - vrw / 2 - gx * 0.6]); left = xr + vrw / 2 + gx * 0.6; }
+            spans.push([left, x1]);
+          } else spans.push([x0, x1]);
+        }
+        for (const [x0, x1] of spans) {
           const inner = x1 - x0;
           const cols = Math.floor((inner + gx) / (w + gx));
           if (cols < 1) continue;
@@ -276,7 +309,7 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     if (handleFace(k)) {
       const hs = holeShape(P.handleShape === 'rect' || P.handleShape === 'tub' ? P.handleShape : 'slot', handle.w, handle.h, P.handleRadius, 0, handle.top - handle.h / 2);
       polys.push(hs);
-      handleCutters.push(faceXform(T(cs([hs]).extrude(80, 0, 0, 1, true)), k, 0, 0, 0));
+      handleCutters.push(faceXform(T(T(cs([hs]).extrude(80)).translate([0, 0, -40])), k, 0, 0, 0));
       if (P.handleLip && P.handleLipWidth > 0.2) {
         const frame = T(CrossSection.difference(T(cs([hs]).offset(P.handleLipWidth, 'Round', 2, 24)), cs([hs])));
         handleLips.push(faceXform(T(frame.extrude(Math.max(P.rimDepth, P.ribDepth) + t * 0.5)), k, -t * 0.5, 0, 0));
@@ -306,18 +339,38 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
 
   // bands (+ 45° chamfers under them in print mode so they print without supports)
   const bandSolids = [];
+  const lineSolids = []; // horizontal rib lines: these stop at a plain centre panel
   for (const b of bands) {
     b.lines.forEach(([z0, z1, depth], li) => {
       if (depth <= 0.05) return;
-      bandSolids.push(ring(depth, -t * 0.5, z0, z1));
+      (b.kind === 'rib' ? lineSolids : bandSolids).push(ring(depth, -t * 0.5, z0, z1));
       if (printMode && z0 > 0.5) {
         // room below this line: the gap to the next line down, or the hole margin at the bottom of the band
         const below = b.kind === 'rim' ? (li === b.lines.length - 1 ? holeM * 0.6 - 0.3 : rimGap - 0.2) : li === 0 ? holeM * 0.6 - 0.3 : lgap - 0.2;
         const ch = Math.max(0.6, Math.min(depth + t * 0.5, below, z0 - 0.5));
         const fr = hull([slab(depth, z0, z0 + 0.01), slab(-t * 0.5, z0 - ch, z0 - ch + 0.01)]);
-        bandSolids.push(diff(fr, slab(-t * 0.6, z0 - ch - 1, z0 + 1)));
+        (b.kind === 'rib' ? lineSolids : bandSolids).push(diff(fr, slab(-t * 0.6, z0 - ch - 1, z0 + 1)));
       }
     });
+  }
+  {
+    let lines = union(lineSolids);
+    if (lines && label && P.plateClear) {
+      // the centre panel is plain: rib lines stop at its edges (like the Grasshopper model)
+      const cut = [];
+      for (let k = 0; k < N; k++) if (labelFace(k)) cut.push(faceXform(T(cs([roundedRect(label.w, label.h, 0)]).extrude(40)), k, 0.01, label.zc, 0));
+      if (cut.length) lines = diff(lines, union(cut));
+    }
+    if (lines) bandSolids.push(lines);
+  }
+  // short vertical ribs in the centre column, above the hand hold
+  if (handle && P.centerTopRibs > 0 && colsN % 2 === 1 && colsN > 1) {
+    const mid = (colsN - 1) / 2, cx0 = colBounds[mid], cx1 = colBounds[mid + 1], n = Math.round(P.centerTopRibs);
+    const zb = handle.top, h2 = H - zb;
+    if (h2 > 1) for (let k = 0; k < N; k++) if (handleFace(k)) for (let i = 1; i <= n; i++) {
+      const x = cx0 + ((cx1 - cx0) * i) / (n + 1);
+      bandSolids.push(faceXform(T(cs([roundedRect(vrw, h2, 0, x, zb + h2 / 2)]).extrude(P.ribDepth + t * 0.5)), k, -t * 0.5, 0, 0));
+    }
   }
   // vertical ribs between the columns
   if ((vRibXs.length || cornerXs.length) && P.ribDepth > 0.05) {
@@ -354,14 +407,21 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     return T(T(logoCSCache.translate([-0.5, -logo.aspect / 2])).scale(k));
   };
   if (logoOn) {
-    const sh = logoShape(label.w * 0.82, label.h * 0.72);
     const surf = label.plate ? P.labelRaise : 0;
     const depth = abs(P.logoDepth);
     for (let k = 0; k < N; k++) {
       if (!(k === 0 || onFaces(P.logoFaces, k))) continue;
-      if (P.logoStyle === 'emboss') bandSolids.push(faceXform(T(sh.extrude(depth + 0.1)), k, surf - 0.1, label.zc, 0));
-      else if (P.logoStyle === 'engrave') logoCuts.push(faceXform(T(sh.extrude(depth + 1)), k, surf - Math.min(depth, (t + surf) * 0.7), label.zc, 0));
-      else logoCuts.push(faceXform(T(sh.extrude(t + surf + 4)), k, -t - 2, label.zc, 0));
+      // free space on the panel: below the hand hold if it reaches into the panel
+      let zc = label.zc, hMax = label.h * 0.72;
+      const pTop = label.zc + label.h / 2, pBot = label.zc - label.h / 2;
+      if (handleFace(k)) {
+        const hb = handle.top - handle.h - (P.handleLip ? P.handleLipWidth : 0) - 2;
+        if (hb < pTop && hb > pBot + 8) { zc = (hb + pBot) / 2; hMax = (hb - pBot) * 0.7; }
+      }
+      const sh = logoShape(label.w * 0.82, hMax);
+      if (P.logoStyle === 'emboss') bandSolids.push(faceXform(T(sh.extrude(depth + 0.1)), k, surf - 0.1, zc, 0));
+      else if (P.logoStyle === 'engrave') logoCuts.push(faceXform(T(sh.extrude(depth + 1)), k, surf - Math.min(depth, (t + surf) * 0.7), zc, 0));
+      else logoCuts.push(faceXform(T(sh.extrude(t + surf + 4)), k, -t - 2, zc, 0));
     }
   }
   {
@@ -450,6 +510,12 @@ export function buildSet(wasm, P, quality = 1, logo = null) {
     for (let i = 0; i < zones.length && zones[i].code === 's'; i++) baseTop = Math.max(baseTop, zones[i].z1);
     const joints = cands.map((c) => {
       if (c.base) c = { ...c, band: { ...c.band, z1: baseTop } };
+      else {
+        // a thin rib line can lend the opening-free margin above it to the joint
+        const above = zones.find((zn) => zn.z0 >= c.band.z1 - 0.01);
+        const extra = above ? (above.code === 's' ? above.z1 - above.z0 : Math.max(0, holeM * 0.6 - 0.6)) : 0;
+        c = { ...c, band: { ...c.band, z1: c.band.z1 + extra } };
+      }
       const bandH = c.band.z1 - c.band.z0;
       let zs = c.band.z0 + 0.3;
       if (c.base) zs = floorAt === 'foot' ? 0.3 : Math.max(tf + 0.5, 0.3);
