@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>Argaz, a parametric crate</title>
+  <meta name="description" content="Design a stackable plastic crate in your browser and export it for 3D printing." />
+  <meta name="theme-color" content="#E3E6E1" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+  <script type="importmap">
+    { "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+    } }
+  </script>
+</head>
+<body>
+  <div class="app" id="app">
+    <main class="stage" id="stage" aria-label="3D preview">
+      <div class="stage-canvas" id="canvas"></div>
+      <div class="dim-layer" id="dims" aria-hidden="true"></div>
+
+      <header class="brand">
+        <h1 class="wordmark"><span lang="he" dir="rtl">ארגז</span> Argaz</h1>
+        <button class="preset-btn" id="presetBtn" aria-haspopup="menu" aria-expanded="false">
+          <span id="presetName">Tnuva classic</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+
+      <div class="stage-tools">
+        <button class="icon-btn" id="fitBtn" title="Frame the crate (F)" aria-label="Frame the crate">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+
+      <div class="build-state" id="buildState" role="status" aria-live="polite"></div>
+
+      <section class="plate" id="plate" aria-label="Crate summary">
+        <div class="resin" aria-label="Polypropylene, resin code 5">
+          <svg viewBox="0 0 40 36" aria-hidden="true"><path d="M17.4 4.5a3 3 0 015.2 0l13 22.5a3 3 0 01-2.6 4.5H7a3 3 0 01-2.6-4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>
+          <b>5</b><small>PP</small>
+        </div>
+        <dl>
+          <div><dt>Size</dt><dd id="sSize">–</dd></div>
+          <div><dt>Weight</dt><dd id="sWeight">–</dd></div>
+          <div><dt>Holds</dt><dd id="sCap">–</dd></div>
+          <div><dt>Openings</dt><dd id="sHoles">–</dd></div>
+        </dl>
+      </section>
+    </main>
+
+    <aside class="panel" id="panel" aria-label="Crate settings">
+      <nav class="tabs" id="tabs" role="tablist"></nav>
+      <div class="pane" id="pane"></div>
+      <footer class="actions">
+        <button class="icon-btn" id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5L3.5 9l4 4M4 9h8a4.5 4.5 0 010 9h-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="icon-btn" id="redoBtn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5l4 4-4 4M16 9H8a4.5 4.5 0 000 9h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="text-btn" id="shareBtn">Copy link</button>
+        <button class="primary-btn" id="exportBtn" aria-haspopup="menu" aria-expanded="false">Export</button>
+      </footer>
+    </aside>
+  </div>
+
+  <div class="menu" id="presetMenu" role="menu" hidden></div>
+  <div class="menu" id="exportMenu" role="menu" hidden>
+    <button role="menuitem" data-export="stl">STL<small>Mesh for any slicer</small></button>
+    <button role="menuitem" data-export="3mf">3MF<small>Mesh with units and colour</small></button>
+    <button role="menuitem" data-export="obj">OBJ<small>For Rhino, Blender</small></button>
+    <button role="menuitem" data-export="glb">GLB<small>For web and AR viewers</small></button>
+    <button role="menuitem" data-export="png">Image<small>PNG of this view</small></button>
+    <hr />
+    <button role="menuitem" data-export="json">Save settings<small>JSON you can load later</small></button>
+    <button role="menuitem" data-export="load">Load settings…</button>
+  </div>
+  <input type="file" id="loadInput" accept="application/json,.json" hidden />
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <noscript><p class="noscript">This configurator needs JavaScript and WebGL.</p></noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

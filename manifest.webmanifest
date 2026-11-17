@@ -1,0 +1,3 @@
+{ "name": "Argaz, parametric crate", "short_name": "Argaz", "start_url": "./", "display": "standalone",
+  "background_color": "#E3E6E1", "theme_color": "#E3E6E1",
+  "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml" }] }
