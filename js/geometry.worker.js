@@ -1,6 +1,6 @@
 // Runs Manifold off the main thread so sliders never stutter.
 import Module from '../vendor/manifold/manifold.js';
-import { buildCrate } from './crate.js';
+import { buildSet } from './crate.js';
 
 let wasm = null;
 const ready = Module({ locateFile: (f) => new URL('../vendor/manifold/' + f, import.meta.url).href }).then((m) => { m.setup(); wasm = m; });
@@ -10,13 +10,16 @@ self.onmessage = async (e) => {
   try {
     await ready;
     const t0 = performance.now();
-    const res = buildCrate(wasm, params, quality);
-    const { positions, normals } = creased(res.positions, res.numProp, res.index, 32);
+    const res = buildSet(wasm, params, quality);
+    const transfer = [];
+    const parts = res.parts.map((p) => {
+      const { positions, normals } = creased(p.positions, p.numProp, p.index, 32);
+      transfer.push(positions.buffer, normals.buffer, p.positions.buffer, p.index.buffer);
+      return { id: p.id, label: p.label, kind: p.kind, flip: p.flip, order: p.order, preview: p.preview, joint: p.joint, volume: p.volume, bbox: p.bbox,
+        positions, normals, mesh: { pos: p.positions, numProp: p.numProp, index: p.index } };
+    });
     const ms = performance.now() - t0;
-    self.postMessage(
-      { id, ok: true, positions, normals, mesh: { pos: res.positions, numProp: res.numProp, index: res.index }, stats: { ...res.stats, ms } },
-      [positions.buffer, normals.buffer, res.positions.buffer, res.index.buffer]
-    );
+    self.postMessage({ id, ok: true, parts, notes: res.notes, stats: { ...res.stats, ms } }, transfer);
   } catch (err) {
     self.postMessage({ id, ok: false, error: String(err && err.message ? err.message : err) });
   }

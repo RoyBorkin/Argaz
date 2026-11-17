@@ -1,15 +1,28 @@
 // Parameter schema. Every control in the UI is generated from this list.
 // `tab` decides which panel it lives in; `show` hides controls that don't apply.
 
+export const MODES = [
+  { id: 'crate', label: 'Crate' },
+  { id: 'cover', label: 'Cover' },
+  { id: 'print', label: 'Print' },
+];
+
 export const TABS = [
-  { id: 'body', label: 'Body', help: 'Overall form. Width is measured across the flats, not corner to corner.' },
-  { id: 'ribs', label: 'Ribs', help: 'Horizontal bands that stiffen the walls. Openings fill the space between them.' },
-  { id: 'rim', label: 'Rim', help: 'The top rim carries the load when crates stack. Pillars reinforce the corners.' },
-  { id: 'holes', label: 'Holes', help: 'Openings on each face. They stay clear of ribs, pillars, hand holds and the label plate.' },
-  { id: 'grips', label: 'Grips', help: 'Hand holds cut through the rim. The label plate is a solid area on the front for a logo.' },
-  { id: 'base', label: 'Base', help: 'Floor thickness and drainage pattern.' },
-  { id: 'stack', label: 'Stack', help: 'The foot sits inside the rim of the crate below. Clearance is the gap that lets it drop in.' },
-  { id: 'look', label: 'Look', help: 'Preview only. Colour is also written into 3MF exports.' },
+  { id: 'body', mode: 'crate', label: 'Body', help: 'Overall form. Width is measured across the flats, not corner to corner.' },
+  { id: 'ribs', mode: 'crate', label: 'Ribs', help: 'Horizontal bands that stiffen the walls. Openings fill the space between them.' },
+  { id: 'rim', mode: 'crate', label: 'Rim', help: 'The top rim carries the load when crates stack. Pillars reinforce the corners.' },
+  { id: 'holes', mode: 'crate', label: 'Holes', help: 'Openings on each face. They stay clear of ribs, pillars, hand holds and the label plate.' },
+  { id: 'grips', mode: 'crate', label: 'Grips', help: 'Hand holds cut through the rim. The label plate is a solid area on the front for a logo.' },
+  { id: 'base', mode: 'crate', label: 'Base', help: 'Floor thickness and drainage pattern.' },
+  { id: 'stack', mode: 'crate', label: 'Stack', help: 'The foot sits inside the rim of the crate below. Clearance is the gap that lets it drop in, and does not change with scale.' },
+  { id: 'look', mode: 'crate', label: 'Look', help: 'Preview only. Colour is also written into 3MF exports.' },
+  { id: 'lid', mode: 'cover', label: 'Lid', help: 'A cover that sits on the rim. Overhang is measured from the outside of the rim.' },
+  { id: 'cstack', mode: 'cover', label: 'Stack', help: 'The skirt locks the cover onto the crate below. The lip on top takes the foot of a crate stacked on the cover, so it stacks from both directions.' },
+  { id: 'vents', mode: 'cover', label: 'Vents', help: 'Openings in the cover plate. They stay inside the skirt and the lip.' },
+  { id: 'seat', mode: 'cover', label: 'Seat', help: 'Turn the crate into a stool: straps or ties hold a cushion, a frame keeps it in place. The cushion is a preview and is not exported.' },
+  { id: 'split', mode: 'print', label: 'Split', help: 'Print-ready adds 45° chamfers under every rib and moves the floor to the bottom of the foot, so every part prints upright without supports.' },
+  { id: 'joint', mode: 'print', label: 'Joint', help: 'Joints sit at the bottom of a rib, where there are no openings. The lower part grows a tongue, the upper part gets a groove. Gaps are real millimetres and ignore scale.' },
+  { id: 'bed', mode: 'print', label: 'Bed', help: 'Parts are laid out on as many plates of this size as needed. A part taller or wider than the bed is marked in red.' },
 ];
 
 export const SCHEMA = [
@@ -79,9 +92,60 @@ export const SCHEMA = [
   { key: 'stack', tab: 'stack', label: 'Stack preview', type: 'range', min: 1, max: 4, step: 1, unit: '', def: 1, live: true, hint: 'Shows how crates sit on top of each other' },
   { key: 'section', tab: 'look', label: 'Section cut', type: 'toggle', half: true, def: false, live: true, hint: 'Slices the view in half to check wall, rib and foot profiles' },
   { key: 'dims', tab: 'look', label: 'Dimensions', type: 'toggle', half: true, def: true, live: true },
+
+  // Cover
+  { key: 'cover', tab: 'lid', label: 'Cover', type: 'toggle', half: true, def: false },
+  { key: 'lidThick', tab: 'lid', label: 'Thickness', type: 'range', min: 1, max: 12, step: 0.1, unit: 'mm', def: 3.5, show: (p) => p.cover },
+  { key: 'lidOverhang', tab: 'lid', label: 'Overhang', type: 'range', min: -3, max: 15, step: 0.5, unit: 'mm', def: 1, show: (p) => p.cover },
+  { key: 'lidClear', tab: 'lid', label: 'Fit clearance', type: 'range', min: 0, max: 3, step: 0.05, unit: 'mm', def: 0.8, show: (p) => p.cover && p.lidSkirt, hint: 'Gap between the skirt and the crate wall' },
+  { key: 'lidGrip', tab: 'lid', label: 'Grip', type: 'segment', options: [['none', 'None'], ['notches', 'Notches'], ['slot', 'Hand slot']], def: 'notches', show: (p) => p.cover },
+  { key: 'gripSize', tab: 'lid', label: 'Grip size', type: 'range', min: 12, max: 60, step: 1, unit: 'mm', def: 28, show: (p) => p.cover && p.lidGrip !== 'none' },
+
+  { key: 'lidSkirt', tab: 'cstack', label: 'Skirt below', type: 'toggle', half: true, def: true, show: (p) => p.cover, hint: 'Locks the cover onto the crate underneath' },
+  { key: 'lidLip', tab: 'cstack', label: 'Lip on top', type: 'toggle', half: true, def: true, show: (p) => p.cover, hint: 'Takes the foot of a crate stacked on top of the cover' },
+  { key: 'lidSkirtHeight', tab: 'cstack', label: 'Skirt height', type: 'range', min: 2, max: 30, step: 0.5, unit: 'mm', def: 8, show: (p) => p.cover && p.lidSkirt },
+  { key: 'lidLipHeight', tab: 'cstack', label: 'Lip height', type: 'range', min: 2, max: 30, step: 0.5, unit: 'mm', def: 9, show: (p) => p.cover && p.lidLip, hint: 'Make it taller than the foot height so stacked crates lock in' },
+  { key: 'lidRibs', tab: 'cstack', label: 'Underside ribs', type: 'segment', options: [['none', 'None'], ['grid', 'Grid'], ['radial', 'Radial']], def: 'grid', show: (p) => p.cover },
+  { key: 'lidRibDepth', tab: 'cstack', label: 'Rib depth', type: 'range', min: 2, max: 25, step: 0.5, unit: 'mm', def: 6, show: (p) => p.cover && p.lidRibs !== 'none' },
+  { key: 'lidRibGap', tab: 'cstack', label: 'Rib spacing', type: 'range', min: 15, max: 150, step: 1, unit: 'mm', def: 60, show: (p) => p.cover && p.lidRibs === 'grid' },
+
+  { key: 'lidPattern', tab: 'vents', label: 'Vents', type: 'segment', options: [['none', 'None'], ['grid', 'Grid'], ['slots', 'Slots'], ['hex', 'Hex'], ['round', 'Round']], def: 'none', show: (p) => p.cover },
+  { key: 'lidHole', tab: 'vents', label: 'Opening size', type: 'range', min: 3, max: 40, step: 0.5, unit: 'mm', def: 10, show: (p) => p.cover && p.lidPattern !== 'none' },
+  { key: 'lidSlotLen', tab: 'vents', label: 'Slot length', type: 'range', min: 10, max: 150, step: 1, unit: 'mm', def: 40, show: (p) => p.cover && p.lidPattern === 'slots' },
+  { key: 'lidGap', tab: 'vents', label: 'Bar width', type: 'range', min: 2, max: 30, step: 0.5, unit: 'mm', def: 6, show: (p) => p.cover && p.lidPattern !== 'none' },
+  { key: 'lidMargin', tab: 'vents', label: 'Margin', type: 'range', min: 2, max: 80, step: 0.5, unit: 'mm', def: 16, show: (p) => p.cover && p.lidPattern !== 'none' },
+
+  { key: 'seat', tab: 'seat', label: 'Cushion fixing', type: 'segment', options: [['none', 'None'], ['straps', 'Straps'], ['ties', 'Ties'], ['frame', 'Frame']], def: 'none', show: (p) => p.cover },
+  { key: 'strapLen', tab: 'seat', label: 'Strap width', type: 'range', min: 10, max: 80, step: 1, unit: 'mm', def: 30, show: (p) => p.cover && p.seat === 'straps', hint: 'Length of each strap slot, so it fits your strap or Velcro' },
+  { key: 'strapInset', tab: 'seat', label: 'From edge', type: 'range', min: 4, max: 60, step: 0.5, unit: 'mm', def: 12, show: (p) => p.cover && (p.seat === 'straps' || p.seat === 'ties') },
+  { key: 'frameHeight', tab: 'seat', label: 'Frame height', type: 'range', min: 2, max: 25, step: 0.5, unit: 'mm', def: 6, show: (p) => p.cover && p.seat === 'frame' && !p.lidLip, hint: 'With the lip on top, the lip already frames the cushion' },
+  { key: 'cushion', tab: 'seat', label: 'Show cushion', type: 'toggle', half: true, def: false, show: (p) => p.cover },
+  { key: 'cushionThick', tab: 'seat', label: 'Cushion', type: 'range', min: 10, max: 120, step: 1, unit: 'mm', def: 45, show: (p) => p.cover && p.cushion },
+  { key: 'cushionColor', tab: 'seat', label: 'Fabric', type: 'swatches', options: ['#C9B8A0', '#3C4A5C', '#8E3B2F', '#5E7354', '#D9D4CC', '#23262A'], def: '#C9B8A0', live: true, show: (p) => p.cover && p.cushion },
+
+  // Print
+  { key: 'printReady', tab: 'split', label: 'Print-ready', type: 'toggle', half: true, def: false },
+  { key: 'bedView', tab: 'split', label: 'Bed view', type: 'toggle', half: true, def: false, live: true, hint: 'Shows the parts the way they will sit on the print bed' },
+  { key: 'splitBase', tab: 'split', label: 'Separate base', type: 'toggle', half: true, def: true, show: (p) => p.printReady, hint: 'Splits the floor and foot from the walls' },
+  { key: 'sections', tab: 'split', label: 'Wall sections', type: 'range', min: 1, max: 5, step: 1, unit: '', def: 2, show: (p) => p.printReady, hint: 'Splits the walls at ribs so tall crates fit your printer' },
+  { key: 'explode', tab: ['split', 'look'], label: 'Exploded view', type: 'range', min: 0, max: 1, step: 0.01, unit: '', def: 0, live: true },
+
+  { key: 'joint', tab: 'joint', label: 'Joint', type: 'segment', options: [['snap', 'Snap'], ['glue', 'Glue'], ['press', 'Tight gap']], def: 'snap', show: (p) => p.printReady },
+  { key: 'jointDepth', tab: 'joint', label: 'Joint depth', type: 'range', min: 2, max: 15, step: 0.5, unit: 'mm', def: 5, show: (p) => p.printReady, hint: 'How far the tongue reaches into the part above. Limited by the rib height' },
+  { key: 'snapGap', tab: 'joint', label: 'Gap', type: 'range', min: 0.05, max: 0.8, step: 0.01, unit: 'mm', def: 0.25, show: (p) => p.printReady && p.joint === 'snap', hint: 'Clearance around the tongue, in real millimetres' },
+  { key: 'glueGap', tab: 'joint', label: 'Glue gap', type: 'range', min: 0.05, max: 0.8, step: 0.01, unit: 'mm', def: 0.2, show: (p) => p.printReady && p.joint === 'glue', hint: 'Room for the adhesive. Two grooves in the tongue hold extra glue' },
+  { key: 'pressGap', tab: 'joint', label: 'Gap', type: 'range', min: 0, max: 0.5, step: 0.01, unit: 'mm', def: 0.1, show: (p) => p.printReady && p.joint === 'press', hint: 'Press fit: 0.05 to 0.15 mm for most printers. Test with a small scale first' },
+  { key: 'snapBump', tab: 'joint', label: 'Snap bump', type: 'range', min: 0.2, max: 1.5, step: 0.05, unit: 'mm', def: 0.6, show: (p) => p.printReady && p.joint === 'snap', hint: 'How far each catch sticks out. Bigger holds harder and is harder to close' },
+  { key: 'snapsPerFace', tab: 'joint', label: 'Snaps per face', type: 'range', min: 1, max: 4, step: 1, unit: '', def: 2, show: (p) => p.printReady && p.joint === 'snap' },
+
+  { key: 'printer', tab: 'bed', label: 'Printer', type: 'segment', options: [['mini', '180'], ['mk4', '250×210'], ['x1', '256'], ['big', '350'], ['custom', 'Custom']], def: 'x1', live: true },
+  { key: 'bedX', tab: 'bed', label: 'Bed width', type: 'range', min: 100, max: 600, step: 1, unit: 'mm', def: 256, live: true },
+  { key: 'bedY', tab: 'bed', label: 'Bed depth', type: 'range', min: 100, max: 600, step: 1, unit: 'mm', def: 256, live: true },
+  { key: 'bedZ', tab: 'bed', label: 'Max height', type: 'range', min: 100, max: 600, step: 1, unit: 'mm', def: 256, live: true },
 ];
 
 export const DEFAULTS = Object.fromEntries(SCHEMA.map((s) => [s.key, s.def]));
+export const PRINTERS = { mini: [180, 180, 180], mk4: [250, 210, 220], x1: [256, 256, 256], big: [350, 350, 350] };
 export const LIVE_KEYS = new Set(SCHEMA.filter((s) => s.live).map((s) => s.key));
 
 export const PRESETS = [
@@ -90,6 +154,8 @@ export const PRESETS = [
   { id: 'hex', name: 'Hex bin', p: { sides: 6, width: 300, height: 220, corner: 10, holeShape: 'hex', holeWidth: 16, holeHeight: 16, holeFill: false, handleFaces: 'pair', label: false, floorPattern: 'hex', color: '#F2B705' } },
   { id: 'nest', name: 'Nesting tray', p: { height: 140, taper: 5, ribCount: 1, foot: false, holeShape: 'slot', holeWidth: 8, handleFaces: 'pair', label: false, color: '#E2367E' } },
   { id: 'desk', name: 'Desk organiser', p: { scale: 0.3, wall: 5, floor: 5, color: '#2AA7E0' } },
+  { id: 'stool', name: 'Crate stool', p: { cover: true, lidThick: 5, lidLip: false, seat: 'straps', cushion: true, lidRibs: 'radial', lidRibDepth: 10, color: '#2B2F2C' } },
+  { id: 'print', name: 'Print kit, ⅓ scale', p: { scale: 0.33, wall: 6, floor: 6, ribHeight: 18, ribDepth: 4, baseBand: 20, printReady: true, sections: 2, cover: true, color: '#E2367E' } },
   { id: 'solid', name: 'Closed tote', p: { holes: false, floorPattern: 'none', ribCount: 2, color: '#2B2F2C' } },
 ];
 

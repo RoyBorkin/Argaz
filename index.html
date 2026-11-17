@@ -46,16 +46,12 @@
           <svg viewBox="0 0 40 36" aria-hidden="true"><path d="M17.4 4.5a3 3 0 015.2 0l13 22.5a3 3 0 01-2.6 4.5H7a3 3 0 01-2.6-4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>
           <b>5</b><small>PP</small>
         </div>
-        <dl>
-          <div><dt>Size</dt><dd id="sSize">–</dd></div>
-          <div><dt>Weight</dt><dd id="sWeight">–</dd></div>
-          <div><dt>Holds</dt><dd id="sCap">–</dd></div>
-          <div><dt>Openings</dt><dd id="sHoles">–</dd></div>
-        </dl>
+        <dl id="plateList"><div><dt>Size</dt><dd>–</dd></div></dl>
       </section>
     </main>
 
     <aside class="panel" id="panel" aria-label="Crate settings">
+      <div class="modes seg" id="modes" role="radiogroup" aria-label="What to edit"></div>
       <nav class="tabs" id="tabs" role="tablist"></nav>
       <div class="pane" id="pane"></div>
       <footer class="actions">
@@ -69,9 +65,12 @@
 
   <div class="menu" id="presetMenu" role="menu" hidden></div>
   <div class="menu" id="exportMenu" role="menu" hidden>
-    <button role="menuitem" data-export="stl">STL<small>Mesh for any slicer</small></button>
-    <button role="menuitem" data-export="3mf">3MF<small>Mesh with units and colour</small></button>
-    <button role="menuitem" data-export="obj">OBJ<small>For Rhino, Blender</small></button>
+    <button role="menuitem" data-export="print-3mf">Print set, 3MF<small>Every part laid out on the bed</small></button>
+    <button role="menuitem" data-export="print-zip">Print set, STL files<small>One STL per part, ready to slice</small></button>
+    <hr />
+    <button role="menuitem" data-export="stl">Crate STL<small>Assembled crate</small></button>
+    <button role="menuitem" data-export="cover-stl">Cover STL<small>Cover, oriented for printing</small></button>
+    <button role="menuitem" data-export="obj">OBJ<small>Everything, for Rhino or Blender</small></button>
     <button role="menuitem" data-export="glb">GLB<small>For web and AR viewers</small></button>
     <button role="menuitem" data-export="png">Image<small>PNG of this view</small></button>
     <hr />

@@ -9,6 +9,30 @@ export function download(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 
+// Apply a print pose (optional 180° flip about X, then translation) to an indexed mesh.
+export function posed({ pos, numProp, index }, pose) {
+  const nv = pos.length / numProp, out = new Float32Array(nv * 3);
+  const [tx, ty, tz] = pose ? pose.pos : [0, 0, 0], f = pose && pose.flip;
+  for (let i = 0; i < nv; i++) {
+    const x = pos[i * numProp], y = pos[i * numProp + 1], z = pos[i * numProp + 2];
+    out[i * 3] = x + tx; out[i * 3 + 1] = (f ? -y : y) + ty; out[i * 3 + 2] = (f ? -z : z) + tz;
+  }
+  return { pos: out, numProp: 3, index };
+}
+export function merge(meshes) {
+  let nv = 0, nt = 0;
+  for (const m of meshes) { nv += m.pos.length / m.numProp; nt += m.index.length; }
+  const pos = new Float32Array(nv * 3), index = new Uint32Array(nt);
+  let vo = 0, io = 0;
+  for (const m of meshes) {
+    const n = m.pos.length / m.numProp;
+    for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) pos[(vo + i) * 3 + j] = m.pos[i * m.numProp + j];
+    for (let i = 0; i < m.index.length; i++) index[io + i] = m.index[i] + vo;
+    vo += n; io += m.index.length;
+  }
+  return { pos, numProp: 3, index };
+}
+
 export function toSTL({ pos, numProp, index }) {
   const nt = index.length / 3;
   const buf = new ArrayBuffer(84 + nt * 50);
@@ -39,20 +63,27 @@ export function toOBJ({ pos, numProp, index }) {
   return new Blob([lines.join('\n')], { type: 'text/plain' });
 }
 
-export function to3MF({ pos, numProp, index }, colorHex = '#295B2E') {
-  const nv = pos.length / numProp;
-  const v = [], tr = [];
-  for (let i = 0; i < nv; i++) v.push(`<vertex x="${pos[i * numProp].toFixed(4)}" y="${pos[i * numProp + 1].toFixed(4)}" z="${pos[i * numProp + 2].toFixed(4)}"/>`);
-  for (let t = 0; t < index.length; t += 3) tr.push(`<triangle v1="${index[t]}" v2="${index[t + 1]}" v3="${index[t + 2]}" pid="1" p1="0"/>`);
+export function to3MF(objects, colorHex = '#295B2E') {
+  // objects: [{ name, mesh: { pos, numProp, index } }]
+  const res = [], items = [];
+  objects.forEach((o, n) => {
+    const { pos, numProp, index } = o.mesh, nv = pos.length / numProp, v = [], tr = [];
+    for (let i = 0; i < nv; i++) v.push(`<vertex x="${pos[i * numProp].toFixed(4)}" y="${pos[i * numProp + 1].toFixed(4)}" z="${pos[i * numProp + 2].toFixed(4)}"/>`);
+    for (let t = 0; t < index.length; t += 3) tr.push(`<triangle v1="${index[t]}" v2="${index[t + 1]}" v3="${index[t + 2]}"/>`);
+    const id = n + 2;
+    res.push(`<object id="${id}" name="${o.name.replace(/[<&"]/g, '')}" type="model" pid="1" pindex="0"><mesh><vertices>${v.join('')}</vertices><triangles>${tr.join('')}</triangles></mesh></object>`);
+    items.push(`<item objectid="${id}"/>`);
+  });
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-<resources><basematerials id="1"><base name="PP" displaycolor="${colorHex}FF"/></basematerials>
-<object id="2" type="model" pid="1" pindex="0"><mesh><vertices>${v.join('')}</vertices><triangles>${tr.join('')}</triangles></mesh></object></resources>
-<build><item objectid="2"/></build></model>`;
+<resources><basematerials id="1"><base name="PP" displaycolor="${colorHex}FF"/></basematerials>${res.join('')}</resources>
+<build>${items.join('')}</build></model>`;
   const types = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`;
   const rels = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`;
   return zipStore([['[Content_Types].xml', types], ['_rels/.rels', rels], ['3D/3dmodel.model', model]], 'model/3mf');
 }
+
+export function zipFiles(files) { return zipStore(files, 'application/zip'); }
 
 // Minimal uncompressed ZIP writer (enough for 3MF).
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -62,7 +93,7 @@ function zipStore(files, type) {
   const parts = [], central = [];
   let offset = 0;
   for (const [name, text] of files) {
-    const nb = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const nb = enc.encode(name), data = typeof text === 'string' ? enc.encode(text) : new Uint8Array(text), crc = crc32(data);
     const lh = new DataView(new ArrayBuffer(30));
     lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint32(14, crc, true);
     lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nb.length, true);

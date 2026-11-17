@@ -1,7 +1,7 @@
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { Viewer } from './viewer.js';
-import { SCHEMA, TABS, DEFAULTS, LIVE_KEYS, PRESETS, encodeParams, decodeParams } from './params.js';
-import { download, toSTL, toOBJ, to3MF } from './exporters.js';
+import { SCHEMA, TABS, MODES, DEFAULTS, LIVE_KEYS, PRESETS, PRINTERS, encodeParams, decodeParams } from './params.js';
+import { download, toSTL, toOBJ, to3MF, posed, merge, zipFiles } from './exporters.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE = 'argaz.v1';
@@ -11,10 +11,14 @@ const haptic = (ms = 4) => { try { navigator.vibrate && navigator.vibrate(ms); }
 let state = location.hash.length > 1 ? decodeParams(location.hash) : (() => {
   try { const s = JSON.parse(localStorage.getItem(STORE)); return s ? { ...DEFAULTS, ...s } : { ...DEFAULTS }; } catch (e) { return { ...DEFAULTS }; }
 })();
+let activeMode = 'crate';
 let activeTab = 'body';
+const lastTabOf = { crate: 'body', cover: 'lid', print: 'split' };
+let lastParts = [];
+let lastLayout = null;
+let lastNotes = [];
 const hist = [structuredClone(state)];
 let hIndex = 0;
-let lastMesh = null;
 let lastStats = null;
 let first = true;
 
@@ -46,10 +50,11 @@ worker.onmessage = (e) => {
   busy = false;
   if (d.ok) {
     builtKey = job.key; builtQuality = job.quality;
-    lastMesh = d.mesh; lastStats = d.stats;
-    viewer.setGeometry(d.positions, d.normals, d.stats, first);
-    if (first) { viewer.setStack(state.stack); viewer.frame(true); first = false; }
-    renderStats(d.stats);
+    lastParts = d.parts; lastStats = d.stats; lastNotes = d.notes || [];
+    viewer.setParts(d.parts, d.stats, first);
+    relayout();
+    if (first) { viewer.setStack(state.stack); viewer.setExplode(state.explode); if (state.bedView) viewer.setBedView(true); viewer.frame(true); first = false; }
+    renderStats();
     setBuildState(pending ? 'busy' : 'done', d.stats.ms);
   } else {
     setBuildState('error', 0, d.error);
@@ -65,17 +70,116 @@ function setBuildState(kind, ms, msg) {
   el.className = 'build-state on' + (kind === 'busy' ? ' busy' : '');
   if (kind === 'busy') el.textContent = 'Building';
   else if (kind === 'error') el.textContent = `Couldn't build this shape: ${msg}. Undo the last change to recover.`;
-  else { el.textContent = `Built in ${Math.round(ms)} ms`; buildTimer = setTimeout(() => el.classList.remove('on'), 1400); }
+  else {
+    const notes = allNotes();
+    if (notes.length) { el.className = 'build-state on note'; el.textContent = notes[0] + (notes.length > 1 ? ` (+${notes.length - 1} more)` : ''); el.title = notes.join('\n'); }
+    else { el.textContent = `Built in ${Math.round(ms)} ms`; el.title = ''; buildTimer = setTimeout(() => el.classList.remove('on'), 1400); }
+  }
+}
+function allNotes() {
+  const n = [];
+  if (state.printReady || activeMode === 'print') n.push(...lastNotes);
+  if (lastLayout && (activeMode === 'print' || state.bedView)) n.push(...lastLayout.warnings);
+  const w = state.wall * state.scale;
+  if (state.scale !== 1 && w < 0.8) n.push(`Walls are ${w.toFixed(2)} mm at this scale, thinner than two lines of a 0.4 mm nozzle.`);
+  return [...new Set(n)];
 }
 
-function renderStats(s) {
-  const w = s.bbox.max[0] - s.bbox.min[0], d = s.bbox.max[1] - s.bbox.min[1], h = s.bbox.max[2] - s.bbox.min[2];
+function renderStats() {
+  const s = lastStats;
+  if (!s) return;
   const fmt = (v) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
-  $('sSize').textContent = `${fmt(w)}×${fmt(d)}×${fmt(h)}`;
-  const g = (s.volume / 1000) * 0.905;
-  $('sWeight').textContent = g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g.toFixed(0)} g`;
-  $('sCap').textContent = s.capacity >= 1 ? `${s.capacity.toFixed(1)} L` : `${(s.capacity * 1000).toFixed(0)} ml`;
-  $('sHoles').textContent = `${s.holes + s.floorHoles}`;
+  const kg = (vol) => { const g = (vol / 1000) * 0.905; return g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g.toFixed(g < 10 ? 1 : 0)} g`; };
+  const cells = [];
+  if (activeMode === 'cover' && s.cover) {
+    const cp = lastParts.filter((p) => p.kind === 'cover');
+    const bb = cp.reduce((m, p) => ({ min: m.min.map((x, i) => Math.min(x, p.bbox.min[i])), max: m.max.map((x, i) => Math.max(x, p.bbox.max[i])) }), { min: [1e9, 1e9, 1e9], max: [-1e9, -1e9, -1e9] });
+    cells.push(['Cover', `${fmt(bb.max[0] - bb.min[0])}×${fmt(bb.max[1] - bb.min[1])}×${fmt(bb.max[2] - bb.min[2])}`]);
+    cells.push(['Weight', kg(s.coverVolume)]);
+    cells.push(['Vents', String(s.cover.vents)]);
+    cells.push(['Stacks', state.lidSkirt && state.lidLip ? 'Both ways' : state.lidSkirt ? 'On crate' : state.lidLip ? 'Under crate' : 'Loose']);
+  } else if (activeMode === 'print' && lastLayout) {
+    const L = lastLayout;
+    cells.push(['Parts', String(L.count)]);
+    cells.push(['Plates', String(L.plates.length), L.plates.some((p) => !p.ok) ? 'bad' : '']);
+    cells.push(['Tallest', `${fmt(L.tallest)} mm`, L.tallest > state.bedZ ? 'bad' : '']);
+    cells.push(['Filament', kg(s.volume)]);
+  } else {
+    const w = s.bbox.max[0] - s.bbox.min[0], d = s.bbox.max[1] - s.bbox.min[1], h = s.bbox.max[2] - s.bbox.min[2];
+    cells.push(['Size', `${fmt(w)}×${fmt(d)}×${fmt(h)}`]);
+    cells.push(['Weight', kg(s.crateVolume)]);
+    cells.push(['Holds', s.capacity >= 1 ? `${s.capacity.toFixed(1)} L` : `${(s.capacity * 1000).toFixed(0)} ml`]);
+    if (state.scale !== 1) {
+      const wall = s.thickness.wall;
+      cells.push(['Wall', `${wall.toFixed(2)} mm`, wall < 0.8 ? 'bad' : wall < 1.2 ? 'warn' : '']);
+    } else cells.push(['Openings', String(s.holes + s.floorHoles)]);
+  }
+  const dl = $('plateList');
+  dl.innerHTML = '';
+  for (const [k, v, cls] of cells) {
+    const div = document.createElement('div');
+    if (cls) div.className = cls;
+    div.innerHTML = '<dt></dt><dd></dd>';
+    div.firstChild.textContent = k; div.lastChild.textContent = v;
+    dl.appendChild(div);
+  }
+}
+
+// ---------------- print layout (shelf packing onto as many plates as needed) ----------------
+function computeLayout(parts) {
+  const bed = [state.bedX, state.bedY, state.bedZ], M = 6, GAP = Math.max(40, bed[0] * 0.15);
+  const items = parts.filter((p) => !p.preview).map((p) => {
+    const b = p.bbox;
+    let [x0, y0, z0] = b.min, [x1, y1, z1] = b.max;
+    if (p.flip) { [y0, y1] = [-y1, -y0]; [z0, z1] = [-z1, -z0]; }
+    return { p, w: x1 - x0, d: y1 - y0, h: z1 - z0, min: [x0, y0, z0] };
+  });
+  items.sort((A, B) => B.w * B.d - A.w * A.d);
+  const plates = [], warnings = [];
+  for (const it of items) {
+    const big = it.w > bed[0] - 2 * M || it.d > bed[1] - 2 * M;
+    if (big) warnings.push(`${it.p.label} is ${it.w.toFixed(0)}×${it.d.toFixed(0)} mm, wider than the ${bed[0]}×${bed[1]} bed. Scale it down or use a larger printer.`);
+    if (it.h > bed[2]) warnings.push(`${it.p.label} is ${it.h.toFixed(0)} mm tall, more than the ${bed[2]} mm build height. Add wall sections.`);
+    let placed = false;
+    if (!big) for (const pl of plates) {
+      if (pl.big) continue;
+      for (const sh of pl.shelves) {
+        if (sh.x + it.w <= bed[0] - M && sh.y + it.d <= bed[1] - M && it.d <= sh.h + 0.01) { it.at = [sh.x, sh.y]; sh.x += it.w + M; placed = true; break; }
+      }
+      if (!placed) {
+        const last = pl.shelves[pl.shelves.length - 1];
+        const ny = last ? last.y + last.h + M : M;
+        if (ny + it.d <= bed[1] - M) { pl.shelves.push({ y: ny, h: it.d, x: M + it.w + M }); it.at = [M, ny]; placed = true; }
+      }
+      if (placed) { pl.items.push(it); if (it.h > bed[2]) pl.ok = false; break; }
+    }
+    if (!placed) {
+      const size = big ? [Math.max(bed[0], it.w + 2 * M), Math.max(bed[1], it.d + 2 * M)] : [bed[0], bed[1]];
+      it.at = big ? [(size[0] - it.w) / 2, (size[1] - it.d) / 2] : [M, M];
+      plates.push({ size, big, ok: !big && it.h <= bed[2], items: [it], shelves: big ? [] : [{ y: M, h: it.d, x: M + it.w + M }] });
+    }
+  }
+  // arrange plates in a row, centred on the origin
+  const total = plates.reduce((s, p) => s + p.size[0], 0) + GAP * Math.max(0, plates.length - 1);
+  let x = -total / 2;
+  const poses = new Map();
+  let tallest = 0;
+  for (const pl of plates) {
+    pl.origin = [x, -pl.size[1] / 2];
+    for (const it of pl.items) {
+      poses.set(it.p.id, { flip: it.p.flip, pos: [pl.origin[0] + it.at[0] - it.min[0], pl.origin[1] + it.at[1] - it.min[1], -it.min[2]] });
+      tallest = Math.max(tallest, it.h);
+    }
+    x += pl.size[0] + GAP;
+  }
+  const maxD = Math.max(...plates.map((p) => p.size[1]), 0);
+  return { plates: plates.map((p) => ({ origin: p.origin, size: p.size, ok: p.ok })), poses, count: items.length, tallest, warnings,
+    bounds: [-total / 2, -maxD / 2, total / 2, maxD / 2, tallest] };
+}
+function relayout() {
+  if (!lastParts.length) return;
+  lastLayout = computeLayout(lastParts);
+  viewer.setLayout(lastLayout);
 }
 
 // ---------------- UI generation ----------------
@@ -86,10 +190,49 @@ function fmtNum(v, step) {
   return (+v).toFixed(dec);
 }
 
+function buildModes() {
+  const nav = $('modes');
+  nav.innerHTML = '';
+  const ink = document.createElement('span'); ink.className = 'seg-ink'; nav.appendChild(ink);
+  for (const m of MODES) {
+    const b = document.createElement('button');
+    b.role = 'radio'; b.id = 'mode-' + m.id; b.textContent = m.label;
+    b.onclick = () => selectMode(m.id);
+    nav.appendChild(b);
+  }
+  paintModes(true);
+}
+function paintModes(instant) {
+  const ink = $('modes').querySelector('.seg-ink');
+  let on = null;
+  for (const m of MODES) { const b = $('mode-' + m.id), sel = m.id === activeMode; b.setAttribute('aria-checked', sel); if (sel) on = b; }
+  requestAnimationFrame(() => {
+    if (instant) ink.style.transition = 'none';
+    ink.style.width = on.offsetWidth + 'px';
+    ink.style.transform = `translateX(${on.offsetLeft}px)`;
+    if (instant) requestAnimationFrame(() => (ink.style.transition = ''));
+  });
+}
+function selectMode(id) {
+  if (id === activeMode) return;
+  haptic();
+  lastTabOf[activeMode] = activeTab;
+  activeMode = id;
+  activeTab = lastTabOf[id];
+  paintModes();
+  // opening the cover maker turns the cover on
+  if (id === 'cover' && !state.cover) set('cover', true, true);
+  buildTabs();
+  buildPane(true);
+  renderStats();
+  setBuildState(busy ? 'busy' : 'done', lastStats ? lastStats.ms : 0);
+}
+
 function buildTabs() {
   const nav = $('tabs');
   nav.innerHTML = '';
-  for (const t of TABS) {
+  const tabs = TABS.filter((t) => t.mode === activeMode);
+  for (const t of tabs) {
     const b = document.createElement('button');
     b.className = 'tab'; b.role = 'tab'; b.id = 'tab-' + t.id; b.textContent = t.label;
     b.setAttribute('aria-selected', t.id === activeTab);
@@ -100,15 +243,15 @@ function buildTabs() {
   const ink = document.createElement('span');
   ink.className = 'tab-ink';
   nav.appendChild(ink);
-  nav.addEventListener('keydown', (e) => {
-    const i = TABS.findIndex((t) => t.id === activeTab);
+  nav.onkeydown = (e) => {
+    const i = tabs.findIndex((t) => t.id === activeTab);
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      const n = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length].id;
+      const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length].id;
       selectTab(n); $('tab-' + n).focus();
     }
-  });
-  requestAnimationFrame(moveInk);
-  new ResizeObserver(moveInk).observe(nav);
+  };
+  ink.style.transition = 'none';
+  requestAnimationFrame(() => { moveInk(); requestAnimationFrame(() => (ink.style.transition = '')); });
 }
 function moveInk() {
   const nav = $('tabs'), b = $('tab-' + activeTab), ink = nav.querySelector('.tab-ink');
@@ -119,7 +262,7 @@ function moveInk() {
 function selectTab(id) {
   if (id === activeTab) return;
   activeTab = id;
-  for (const t of TABS) $('tab-' + t.id).setAttribute('aria-selected', t.id === id);
+  for (const t of TABS.filter((x) => x.mode === activeMode)) $('tab-' + t.id).setAttribute('aria-selected', t.id === id);
   moveInk();
   buildPane(true);
 }
@@ -128,13 +271,13 @@ function buildPane(animate) {
   const pane = $('pane');
   pane.innerHTML = '';
   controls.clear();
-  const items = SCHEMA.filter((s) => s.tab === activeTab);
+  const items = SCHEMA.filter((s) => [].concat(s.tab || []).includes(activeTab));
   const halves = items.filter((s) => s.half);
   const rest = items.filter((s) => !s.half);
   for (const s of [...halves, ...rest]) pane.appendChild(makeControl(s));
   const help = document.createElement('p');
   help.className = 'help'; help.id = 'help';
-  help.textContent = TABS.find((t) => t.id === activeTab).help || '';
+  help.textContent = tabHelp();
   pane.appendChild(help);
   syncVisibility();
   if (animate) { pane.classList.remove('swap'); void pane.offsetWidth; pane.classList.add('swap'); }
@@ -144,7 +287,7 @@ function makeControl(s) {
   const row = document.createElement('div');
   row.className = 'ctl ctl-' + (s.type === 'range' ? 'range' : s.type === 'toggle' ? 'toggle' : s.type === 'segment' ? 'seg' : 'swatch') + (s.half ? ' half' : '');
   row.dataset.key = s.key;
-  const showHelp = () => { const h = $('help'); if (h) h.textContent = s.hint || TABS.find((t) => t.id === activeTab).help || ''; };
+  const showHelp = () => { const h = $('help'); if (h) h.textContent = s.key === 'scale' ? tabHelp() : s.hint || tabHelp(); };
   row.addEventListener('pointerenter', showHelp);
   row.addEventListener('focusin', showHelp);
   const lbl = document.createElement('label');
@@ -261,6 +404,16 @@ function makeControl(s) {
   return row;
 }
 
+function tabHelp() {
+  const base = TABS.find((t) => t.id === activeTab).help || '';
+  if (activeTab === 'body' && state.scale !== 1) {
+    const k = state.scale, f = (v) => (v * k).toFixed(2);
+    const w = state.wall * k;
+    return `At ${k.toFixed(2)}× the wall is ${f(state.wall)} mm, the floor ${f(state.floor)} mm, ribs stand out ${f(state.ribDepth)} mm and the rim ${f(state.rimDepth)} mm.` +
+      (w < 0.8 ? ' That wall is thinner than two lines of a 0.4 mm nozzle: raise Wall thickness.' : w < 1.2 ? ' Thin but printable; 1.2 mm or more is sturdier.' : '');
+  }
+  return base;
+}
 function syncVisibility() {
   for (const s of SCHEMA) {
     const c = controls.get(s.key);
@@ -279,6 +432,7 @@ function set(key, value, commit, quality = 1) {
   state[key] = value;
   if (LIVE_KEYS.has(key)) applyLive(key);
   else requestBuild(quality);
+  if (key === 'scale' || key === 'wall') { const h = $('help'); if (h && activeTab === 'body') h.textContent = tabHelp(); }
   if (commit) pushHistory();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(persist, 250);
@@ -290,13 +444,29 @@ function applyLive(key) {
   if (key === 'stack') { viewer.setStack(state.stack); viewer.frame(); }
   if (key === 'section') viewer.setSection(state.section);
   if (key === 'dims') viewer.setDims(state.dims);
+  if (key === 'explode') { viewer.setExplode(state.explode); if (exploding !== state.explode > 0.002) { exploding = state.explode > 0.002; viewer.frame(); } }
+  if (key === 'bedView') { viewer.setBedView(state.bedView); renderStats(); setBuildState('done', lastStats ? lastStats.ms : 0); }
+  if (key === 'cushionColor') viewer.setFabric(state.cushionColor);
+  if (key === 'printer' && state.printer !== 'custom') {
+    [state.bedX, state.bedY, state.bedZ] = PRINTERS[state.printer];
+    for (const k of ['bedX', 'bedY', 'bedZ']) controls.get(k)?.sync();
+  }
+  if (key === 'bedX' || key === 'bedY' || key === 'bedZ') {
+    const match = Object.entries(PRINTERS).find(([, v]) => v[0] === state.bedX && v[1] === state.bedY && v[2] === state.bedZ);
+    state.printer = match ? match[0] : 'custom';
+    controls.get('printer')?.sync();
+  }
+  if (['printer', 'bedX', 'bedY', 'bedZ'].includes(key)) { relayout(); renderStats(); setBuildState('done', lastStats ? lastStats.ms : 0); }
 }
+let exploding = false;
 function applyAll() {
   applyColor(state.color);
   viewer.setGloss(state.gloss);
   viewer.setSection(state.section);
   viewer.setDims(state.dims);
-  if (!first) viewer.setStack(state.stack);
+  viewer.setFabric(state.cushionColor);
+  if (!first) { viewer.setStack(state.stack); viewer.setExplode(state.explode); viewer.setBedView(state.bedView); relayout(); }
+  exploding = state.explode > 0.002;
   requestBuild(1);
 }
 function applyColor(hex) {
@@ -399,21 +569,63 @@ function fileBase() {
   const p = state, n = { 3: 'tri', 4: 'square', 5: 'penta', 6: 'hex', 8: 'octa' }[p.sides] || p.sides + 'side';
   return `crate-${n}-${Math.round(p.width * p.scale)}x${Math.round(p.height * p.scale)}`;
 }
+const isCrate = (p) => p.kind === 'crate' || p.kind === 'base' || p.kind === 'section';
+// each printable part, flipped if needed, sitting on z = 0 and centred on the origin
+function partForPrint(p) {
+  const m = posed(p.mesh, { flip: p.flip, pos: [0, 0, 0] });
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < m.pos.length; i += 3) { x0 = Math.min(x0, m.pos[i]); x1 = Math.max(x1, m.pos[i]); y0 = Math.min(y0, m.pos[i + 1]); y1 = Math.max(y1, m.pos[i + 1]); z0 = Math.min(z0, m.pos[i + 2]); }
+  return posed(m, { flip: false, pos: [-(x0 + x1) / 2, -(y0 + y1) / 2, -z0] });
+}
 async function doExport(kind) {
   closeMenus();
   if (kind === 'load') return $('loadInput').click();
   if (kind === 'json') { download(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }), fileBase() + '.json'); return toast('Settings saved'); }
   if (kind === 'png') { download(await viewer.snapshot(), fileBase() + '.png'); return toast('Image saved'); }
-  if (!lastMesh || busy || pending) { toast('Still building, export again in a moment'); return; }
+  if (!lastParts.length || busy || pending) { toast('Still building, export again in a moment'); return; }
   if (builtQuality < 1) { requestBuild(1); toast('Refining the mesh, export again in a moment'); return; }
-  if (kind === 'stl') download(toSTL(lastMesh), fileBase() + '.stl');
-  if (kind === 'obj') download(toOBJ(lastMesh), fileBase() + '.obj');
-  if (kind === '3mf') download(to3MF(lastMesh, state.color), fileBase() + '.3mf');
+  const printable = lastParts.filter((p) => !p.preview);
+  const crate = printable.filter(isCrate), cover = printable.filter((p) => p.kind === 'cover');
+  let tris = 0;
+  const count = (m) => { tris += m.index.length / 3; return m; };
+  if (kind === 'stl') download(toSTL(count(merge(crate.map((p) => p.mesh)))), fileBase() + '.stl');
+  if (kind === 'cover-stl') {
+    if (!cover.length) return toast('Turn on the cover first');
+    const L = computeLayout(cover);
+    download(toSTL(count(merge(cover.map((p) => posed(p.mesh, L.poses.get(p.id)))))), fileBase() + '-cover.stl');
+  }
+  if (kind === 'print-3mf') {
+    const L = lastLayout || computeLayout(printable);
+    download(to3MF(printable.map((p) => ({ name: p.label, mesh: count(posed(p.mesh, L.poses.get(p.id))) })), state.color), fileBase() + '-print.3mf');
+  }
+  if (kind === 'print-zip') {
+    const enc = (p) => toSTL(count(partForPrint(p))).arrayBuffer();
+    const files = [];
+    for (const p of printable) files.push([`${fileBase()}-${p.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.stl`, await enc(p)]);
+    files.push(['README.txt', printNotes(printable)]);
+    download(zipFiles(files), fileBase() + '-parts.zip');
+  }
+  if (kind === 'obj') download(toOBJ(count(merge(printable.map((p) => p.mesh)))), fileBase() + '.obj');
   if (kind === 'glb') {
     const glb = await new GLTFExporter().parseAsync(viewer.exportObject(), { binary: true });
     download(new Blob([glb], { type: 'model/gltf-binary' }), fileBase() + '.glb');
   }
-  toast(`${kind.toUpperCase()} exported, ${lastStats.tris.toLocaleString()} triangles`);
+  toast(`Exported${tris ? `, ${Math.round(tris).toLocaleString()} triangles` : ''}`);
+}
+function printNotes(parts) {
+  const j = { snap: 'Snap: press each part straight down until the catches click.', glue: 'Glue: run a bead of CA or plastic cement into the groove, then press the part above onto the tongue.', press: 'Tight gap: press fit. If it is too tight, sand the tongue lightly; if loose, add a drop of glue.' }[state.joint];
+  return [
+    'Crate parts, exported from Argaz',
+    '',
+    'Every file is already oriented for printing: put it on the bed as it is. No supports needed.',
+    `Scale ${state.scale}x, wall ${(state.wall * state.scale).toFixed(2)} mm.`,
+    '',
+    'Parts, bottom to top:',
+    ...parts.map((p) => `  ${p.label}`),
+    '',
+    state.printReady ? 'Joints: ' + j : '',
+    state.printReady ? `Gap ${({ snap: state.snapGap, glue: state.glueGap, press: state.pressGap })[state.joint]} mm. Print one joint at small scale first to check the fit on your printer.` : '',
+  ].join('\n');
 }
 $('loadInput').onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
@@ -467,9 +679,13 @@ function measureInsets() {
   const brand = document.querySelector('.brand').getBoundingClientRect();
   viewer.setInsets(brand.bottom - st.top + 8, st.bottom - plate.top + 8);
 }
-new ResizeObserver(() => { measureInsets(); }).observe($('stage'));
+const insetRO = new ResizeObserver(() => measureInsets());
+insetRO.observe($('stage'));
+insetRO.observe($('plate'));
 measureInsets();
 
+new ResizeObserver(() => moveInk()).observe($('tabs'));
+buildModes();
 buildTabs();
 buildPane(false);
 syncUndo();
